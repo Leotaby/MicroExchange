@@ -4,23 +4,23 @@
 
 > **[📊 Live Interactive Dashboard](https://Leotaby.github.io/MicroExchange/)** — 3D order book surface, Kyle's lambda landscape, spread decomposition, stylized facts.
 
-A complete market microstructure laboratory: from order entry to trade print, from raw event feeds to empirical spread decomposition — built with the rigor of production exchange systems and the analytical depth of graduate-level financial economics.
+A complete market microstructure laboratory: from order entry to trade print, from raw event feeds to empirical spread decomposition, built with the rigor of production exchange systems and the analytical depth of graduate-level financial economics.
 
 ### Visualizations
 
-**3D Limit Order Book Surface** — Bid (blue) and ask (red) depth across price levels over time:
+**3D Limit Order Book Surface** - Bid (blue) and ask (red) depth across price levels over time:
 
 ![Order Book Surface](docs/images/orderbook_3d.png)
 
-**3D Price Impact Surface** — Kyle's lambda: impact increases with volume (concave, square-root law) and amplifies with directional imbalance:
+**3D Price Impact Surface** - Kyle's lambda: impact increases with volume (concave, square-root law) and amplifies with directional imbalance:
 
 ![Price Impact Surface](docs/images/impact_surface_3d.png)
 
-**Spread Decomposition** — Effective spread decomposed into realized spread (MM revenue) and price impact (adverse selection ≈ 68%):
+**Spread Decomposition** - Effective spread decomposed into realized spread (MM revenue) and price impact (adverse selection ≈ 68%):
 
 ![Spread Decomposition](docs/images/spread_decomposition.png)
 
-**Stylized Facts** — Fat-tailed returns (κ ≈ 12 vs Gaussian) and volatility clustering (positive ACF of |returns|):
+**Stylized Facts** - Fat-tailed returns (κ ≈ 12 vs Gaussian) and volatility clustering (positive ACF of |returns|):
 
 ![Stylized Facts](docs/images/stylized_facts.png)
 
@@ -32,24 +32,24 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        MicroExchange Architecture                    │
 │                                                                      │
-│  ┌─────────────┐    ┌──────────────────┐    ┌───────────────────┐   │
-│  │  Simulation  │───▶│  Matching Engine  │───▶│  Market Data Feed │   │
+│  ┌──────────────┐    ┌──────────────────┐     ┌──────────────────┐   │
+│  │  Simulation  │───▶│  Matching Engine │───▶│  Market Data Feed │   │
 │  │  (Hawkes /   │    │  (CLOB + FIFO)   │    │  (ITCH-style)     │   │
 │  │   ZI agents) │    │                  │    │                   │   │
-│  └─────────────┘    │  • Limit/Market   │    │  • Incremental    │   │
-│                      │  • IOC / FOK      │    │  • Snapshots      │   │
-│  ┌─────────────┐    │  • Amend/Cancel   │    │  • Trade prints   │   │
-│  │  ITCH Replay │───▶│  • Partial fills  │    └────────┬──────────┘   │
+│  └──────────────┘    │  • Limit/Market  │    │  • Incremental    │   │
+│                      │  • IOC / FOK     │    │  • Snapshots      │   │
+│  ┌──────────────┐    │  • Amend/Cancel  │    │  • Trade prints   │   │
+│  │  ITCH Replay │───▶│  • Partial fills │    └────────┬──────────┘   │
 │  │  (historical │    └──────────────────┘             │              │
-│  │   data)      │                                      ▼              │
-│  └─────────────┘                              ┌───────────────────┐   │
-│                                                │    Analytics       │   │
-│                                                │  • Spread decomp  │   │
-│                                                │  • Price impact    │   │
-│                                                │  • Kyle's λ       │   │
-│                                                │  • Order imbalance │   │
-│                                                │  • Stylized facts  │   │
-│                                                └───────────────────┘   │
+│  │   data)      │                                     ▼              │
+│  └──────────────┘                              ┌────────────────────┐│
+│                                                │    Analytics       ││
+│                                                │  • Spread decomp   ││
+│                                                │  • Price impact    ││
+│                                                │  • Kyle's λ        ││
+│                                                │  • Order imbalance ││
+│                                                │  • Stylized facts  ││
+│                                                └────────────────────┘│
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
