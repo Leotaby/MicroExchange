@@ -2,7 +2,7 @@
 
 **Exchange-grade CLOB matching engine + ITCH-style market data replay + microstructure analytics in modern C++20.**
 
-> **[📊 Live Interactive Dashboard](https://YOUR_USERNAME.github.io/MicroExchange/)** — 3D order book surface, Kyle's lambda landscape, spread decomposition, stylized facts.
+> **[📊 Live Interactive Dashboard](https://Leotaby.github.io/MicroExchange/)** — 3D order book surface, Kyle's lambda landscape, spread decomposition, stylized facts.
 
 A complete market microstructure laboratory: from order entry to trade print, from raw event feeds to empirical spread decomposition — built with the rigor of production exchange systems and the analytical depth of graduate-level financial economics.
 
@@ -57,7 +57,7 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 
 ## Visualizations
 
-> **[→ Interactive 3D charts (GitHub Pages)](https://YOUR_USERNAME.github.io/MicroExchange/docs/visualizations.html)**
+> **[→ Interactive 3D charts (GitHub Pages)](https://Leotaby.github.io/MicroExchange/docs/visualizations.html)**
 
 ### 3D Order Book Surface — Depth × Price × Time
 Bid side (blue) and ask side (red) form the characteristic valley around the midpoint. Depth clusters at key levels and shifts with the price drift.
