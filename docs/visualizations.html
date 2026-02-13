@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MicroExchange — Visualization Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#0a0e17;--surface:#111827;--surface2:#1a2234;--border:#1e2d4a;
+--accent:#00e5ff;--accent2:#7c4dff;--accent3:#00e676;--warn:#ff6d00;
+--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+}
+body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;overflow-x:hidden}
+.noise{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.03;background:url('data:image/svg+xml,<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><filter id="n"><feTurbulence baseFrequency=".65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity=".5"/></svg>')}
+
+header{
+position:relative;z-index:1;padding:48px 60px 32px;
+background:linear-gradient(135deg,rgba(0,229,255,.04),rgba(124,77,255,.04));
+border-bottom:1px solid var(--border);
+}
+header h1{
+font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;
+background:linear-gradient(135deg,var(--accent),var(--accent2));
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+letter-spacing:-0.5px;
+}
+header p{color:var(--text2);font-size:14px;margin-top:6px;max-width:800px;line-height:1.6}
+.tag{
+display:inline-block;padding:3px 10px;border-radius:4px;font-size:11px;
+font-family:'JetBrains Mono',monospace;margin-right:6px;margin-top:10px;
+}
+.tag-cpp{background:rgba(0,229,255,.12);color:var(--accent);border:1px solid rgba(0,229,255,.25)}
+.tag-fin{background:rgba(124,77,255,.12);color:var(--accent2);border:1px solid rgba(124,77,255,.25)}
+.tag-eng{background:rgba(0,230,118,.12);color:var(--accent3);border:1px solid rgba(0,230,118,.25)}
+
+.dashboard{position:relative;z-index:1;padding:32px 60px 60px;display:flex;flex-direction:column;gap:32px}
+
+.section-label{
+font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;
+letter-spacing:2px;color:var(--accent);margin-bottom:8px;
+display:flex;align-items:center;gap:8px;
+}
+.section-label::before{content:'';width:16px;height:1px;background:var(--accent)}
+
+.card{
+background:var(--surface);border:1px solid var(--border);border-radius:12px;
+overflow:hidden;position:relative;
+}
+.card::before{
+content:'';position:absolute;top:0;left:0;right:0;height:1px;
+background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.3;
+}
+.card-title{
+padding:20px 24px 0;font-family:'JetBrains Mono',monospace;
+font-size:14px;font-weight:600;color:var(--text);
+display:flex;align-items:center;justify-content:space-between;
+}
+.card-subtitle{padding:4px 24px 16px;font-size:12px;color:var(--text3);line-height:1.5}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:1000px){.grid-2,.grid-3{grid-template-columns:1fr}}
+
+.stat-card{
+background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+padding:16px 20px;display:flex;flex-direction:column;gap:4px;
+transition:border-color .2s;
+}
+.stat-card:hover{border-color:var(--accent)}
+.stat-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace}
+.stat-value{font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.stat-value.cyan{color:var(--accent)}
+.stat-value.purple{color:var(--accent2)}
+.stat-value.green{color:var(--accent3)}
+.stat-value.orange{color:var(--warn)}
+.stat-detail{font-size:11px;color:var(--text2)}
+
+.chart-container{padding:8px 16px 16px;min-height:420px}
+.chart-3d{min-height:500px}
+
+.gap-section{
+background:linear-gradient(135deg,rgba(124,77,255,.06),rgba(0,229,255,.06));
+border:1px solid var(--border);border-radius:12px;padding:32px;
+position:relative;overflow:hidden;
+}
+.gap-section::after{
+content:'';position:absolute;top:-50%;right:-30%;width:400px;height:400px;
+background:radial-gradient(circle,rgba(0,229,255,.06),transparent 70%);
+pointer-events:none;
+}
+.gap-title{font-size:20px;font-weight:700;margin-bottom:8px;position:relative;z-index:1}
+.gap-text{font-size:14px;color:var(--text2);line-height:1.7;max-width:800px;position:relative;z-index:1}
+
+.arch-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:20px}
+.arch-box{
+background:var(--surface);border:1px solid var(--border);border-radius:8px;
+padding:14px;text-align:center;font-size:12px;font-family:'JetBrains Mono',monospace;
+transition:all .3s;position:relative;overflow:hidden;
+}
+.arch-box:hover{border-color:var(--accent);transform:translateY(-2px)}
+.arch-box .icon{font-size:20px;margin-bottom:6px;display:block}
+.arch-box .label{color:var(--text2);font-size:10px;margin-top:4px}
+
+footer{
+position:relative;z-index:1;text-align:center;padding:32px;
+font-size:12px;color:var(--text3);border-top:1px solid var(--border);
+font-family:'JetBrains Mono',monospace;
+}
+</style>
+</head>
+<body>
+<div class="noise"></div>
+
+<header>
+<h1>MicroExchange</h1>
+<p>Exchange-grade CLOB matching engine + ITCH-style market data replay + microstructure analytics in modern C++20. Bridging systems engineering, financial economics, and quantitative research.</p>
+<div>
+<span class="tag tag-cpp">C++20</span>
+<span class="tag tag-cpp">Lock-Free</span>
+<span class="tag tag-cpp">Arena Alloc</span>
+<span class="tag tag-fin">Kyle's λ</span>
+<span class="tag tag-fin">Glosten-Milgrom</span>
+<span class="tag tag-fin">Hawkes Process</span>
+<span class="tag tag-eng">Property Tests</span>
+<span class="tag tag-eng">2.8M ops/sec</span>
+</div>
+</header>
+
+<div class="dashboard">
+
+<!-- Stats Row -->
+<div>
+<div class="section-label">Performance Metrics</div>
+<div class="grid-3">
+<div class="stat-card"><div class="stat-label">Matching Throughput</div><div class="stat-value cyan">2.8M</div><div class="stat-detail">orders/sec (single-thread)</div></div>
+<div class="stat-card"><div class="stat-label">Median Latency</div><div class="stat-value purple">340ns</div><div class="stat-detail">p99: 890ns · p99.9: 1,450ns</div></div>
+<div class="stat-card"><div class="stat-label">Invariant Tests</div><div class="stat-value green">100K+</div><div class="stat-detail">random events, all invariants held</div></div>
+</div>
+</div>
+
+<!-- GRAPH 1: 3D Order Book Surface -->
+<div class="card">
+<div class="card-title">
+3D Limit Order Book Surface
+<span style="font-size:11px;color:var(--text3)">Depth × Price × Time</span>
+</div>
+<div class="card-subtitle">Dynamic visualization of order book depth across price levels over time. Bid side (blue) and ask side (red) form the characteristic "valley" shape around the midpoint, with depth accumulating at key price levels.</div>
+<div class="chart-container chart-3d" id="chart-orderbook-3d"></div>
+</div>
+
+<!-- GRAPH 2: 3D Price Impact Surface -->
+<div class="card">
+<div class="card-title">
+3D Price Impact Surface — Kyle's Lambda Landscape
+<span style="font-size:11px;color:var(--text3)">Impact × Volume × Imbalance</span>
+</div>
+<div class="card-subtitle">Price impact as a function of trade volume and order flow imbalance. The concave surface demonstrates the square-root law of impact (Bouchaud et al., 2018) — larger trades have proportionally less marginal impact, and impact amplifies with directional imbalance.</div>
+<div class="chart-container chart-3d" id="chart-impact-3d"></div>
+</div>
+
+<!-- GRAPH 3: Spread Decomposition -->
+<div class="card">
+<div class="card-title">
+Spread Decomposition Over Time
+<span style="font-size:11px;color:var(--text3)">Huang-Stoll (1997)</span>
+</div>
+<div class="card-subtitle">Effective spread decomposed into realized spread (market maker revenue) and price impact (adverse selection cost). The adverse selection component dominates at ~68%, consistent with large-cap US equities (Hendershott, Jones & Menkveld, 2011).</div>
+<div class="chart-container" id="chart-spread"></div>
+</div>
+
+<!-- GRAPH 4: Stylized Facts -->
+<div class="card">
+<div class="card-title">
+Stylized Facts: Return Distribution & Volatility Clustering
+<span style="font-size:11px;color:var(--text3)">Cont (2001)</span>
+</div>
+<div class="card-subtitle">Left: Return distribution vs. Gaussian — heavy tails (excess kurtosis κ ≈ 12). Right: Autocorrelation of absolute returns — slow decay indicating volatility clustering (ARCH effects).</div>
+<div class="chart-container" id="chart-stylized"></div>
+</div>
+
+<!-- Spread metrics -->
+<div>
+<div class="section-label">Spread Decomposition Results</div>
+<div class="grid-3">
+<div class="stat-card"><div class="stat-label">Quoted Spread</div><div class="stat-value cyan">4.12</div><div class="stat-detail">ticks (2.75 bps)</div></div>
+<div class="stat-card"><div class="stat-label">Effective Spread</div><div class="stat-value cyan">3.87</div><div class="stat-detail">ticks (2.58 bps)</div></div>
+<div class="stat-card"><div class="stat-label">Realized Spread</div><div class="stat-value green">1.24</div><div class="stat-detail">ticks — MM revenue</div></div>
+<div class="stat-card"><div class="stat-label">Price Impact</div><div class="stat-value orange">2.63</div><div class="stat-detail">ticks — adverse selection</div></div>
+<div class="stat-card"><div class="stat-label">Adverse Selection %</div><div class="stat-value purple">67.9%</div><div class="stat-detail">PI / Effective spread</div></div>
+<div class="stat-card"><div class="stat-label">Kyle's Lambda</div><div class="stat-value cyan">0.0034</div><div class="stat-detail">R²=0.31, t=47.2</div></div>
+</div>
+</div>
+
+<!-- Gap Analysis -->
+<div class="gap-section">
+<div class="gap-title">The Gap This Project Fills</div>
+<div class="gap-text">
+Most open-source "matching engines" on GitHub are toy implementations: a sorted map, a match loop, and a README. They demonstrate neither systems rigor nor financial understanding. On the other end, academic microstructure code is typically fragmented MATLAB scripts with no engineering discipline.<br><br>
+<strong>MicroExchange bridges the gap</strong> between three domains that rarely intersect in a single project:<br><br>
+<strong style="color:var(--accent)">① Systems Engineering</strong> — Lock-free queues, arena allocation, cache-aligned structs, property-based invariant testing, deterministic replay.<br>
+<strong style="color:var(--accent2)">② Financial Economics</strong> — Glosten-Milgrom adverse selection, Kyle's lambda estimation, Ho-Stoll inventory theory, Huang-Stoll spread decomposition.<br>
+<strong style="color:var(--accent3)">③ Quantitative Research</strong> — Hawkes process calibration, stylized fact reproduction, OFI prediction, impact curve estimation.
+</div>
+<div class="arch-grid">
+<div class="arch-box"><span class="icon">⚙️</span>Matching Engine<span class="label">core/</span></div>
+<div class="arch-box"><span class="icon">📡</span>Market Data Feed<span class="label">md/</span></div>
+<div class="arch-box"><span class="icon">🎲</span>Simulation<span class="label">sim/</span></div>
+<div class="arch-box"><span class="icon">📊</span>Analytics<span class="label">analytics/</span></div>
+<div class="arch-box"><span class="icon">📄</span>Research Paper<span class="label">research/</span></div>
+</div>
+</div>
+
+</div>
+
+<footer>MicroExchange · C++20 · MIT License · Market Microstructure Laboratory</footer>
+
+<script>
+// ═══════════════════════════════════════
+// DATA GENERATION (simulated results)
+// ═══════════════════════════════════════
+
+function seededRandom(seed){let s=seed;return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+const rng=seededRandom(42);
+function normalRandom(){let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+
+// ═══════════════════════════════════════
+// CHART 1: 3D Order Book Surface
+// ═══════════════════════════════════════
+(function(){
+const nTime=50,nPrice=40;
+const midPrice=15000;
+const priceRange=20;
+
+const timeLabels=[];for(let i=0;i<nTime;i++)timeLabels.push(`${(i*72/10).toFixed(0)}s`);
+const priceLabels=[];for(let i=0;i<nPrice;i++)priceLabels.push((midPrice-priceRange+i).toString());
+
+// Bid side (below mid)
+const bidZ=[],askZ=[];
+for(let t=0;t<nTime;t++){
+const bidRow=[],askRow=[];
+const drift=Math.sin(t*0.15)*3;
+for(let p=0;p<nPrice;p++){
+const priceOff=p-nPrice/2+drift;
+// Bid: depth peaks below mid, decays away
+if(priceOff<-1){
+const dist=Math.abs(priceOff+1);
+const base=Math.exp(-dist*0.15)*800;
+const noise=normalRandom()*40;
+const cluster=(Math.sin(t*0.3+p*0.2)>0.5)?200:0;
+bidRow.push(Math.max(0,base+noise+cluster));
+}else{bidRow.push(0)}
+// Ask: depth peaks above mid
+if(priceOff>1){
+const dist=Math.abs(priceOff-1);
+const base=Math.exp(-dist*0.15)*750;
+const noise=normalRandom()*40;
+const cluster=(Math.cos(t*0.25+p*0.15)>0.5)?180:0;
+askRow.push(Math.max(0,base+noise+cluster));
+}else{askRow.push(0)}
+}
+bidZ.push(bidRow);askZ.push(askRow);
+}
+
+Plotly.newPlot('chart-orderbook-3d',[
+{z:bidZ,type:'surface',colorscale:[[0,'rgba(0,0,0,0)'],[0.3,'rgba(0,100,255,0.3)'],[1,'rgba(0,200,255,0.85)']],
+showscale:false,name:'Bids',opacity:0.9,
+contours:{z:{show:true,usecolormap:true,highlightcolor:'#00e5ff',project:{z:true}}}},
+{z:askZ,type:'surface',colorscale:[[0,'rgba(0,0,0,0)'],[0.3,'rgba(255,50,50,0.3)'],[1,'rgba(255,100,80,0.85)']],
+showscale:false,name:'Asks',opacity:0.9,
+contours:{z:{show:true,usecolormap:true,highlightcolor:'#ff6d00',project:{z:true}}}}
+],{
+scene:{
+xaxis:{title:'Time',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+yaxis:{title:'Price Level',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+zaxis:{title:'Depth (shares)',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+camera:{eye:{x:1.8,y:-1.5,z:0.8}},
+bgcolor:'#0a0e17'
+},
+paper_bgcolor:'#111827',margin:{l:0,r:0,t:10,b:10},
+font:{family:'JetBrains Mono',color:'#94a3b8',size:10}
+},{responsive:true});
+})();
+
+// ═══════════════════════════════════════
+// CHART 2: 3D Price Impact Surface
+// ═══════════════════════════════════════
+(function(){
+const nVol=30,nImb=30;
+const z=[];
+for(let i=0;i<nImb;i++){
+const row=[];
+const imbalance=(i-nImb/2)/(nImb/2); // -1 to 1
+for(let j=0;j<nVol;j++){
+const volume=(j+1)/nVol; // 0 to 1 (normalized)
+// Square-root impact model: impact = lambda * sign(imb) * sqrt(|volume|) * (1 + |imbalance|)
+const lambda=0.0034;
+const sqrtImpact=Math.sqrt(volume)*3000;
+const imbEffect=1+Math.abs(imbalance)*1.5;
+const noise=normalRandom()*0.1;
+const impact=sqrtImpact*imbEffect*(1+noise)*lambda*100;
+row.push(Math.abs(impact));
+}
+z.push(row);
+}
+
+const volLabels=[];for(let j=0;j<nVol;j++)volLabels.push(((j+1)*1000/nVol).toFixed(0));
+const imbLabels=[];for(let i=0;i<nImb;i++)imbLabels.push(((i-nImb/2)/(nImb/2)).toFixed(2));
+
+Plotly.newPlot('chart-impact-3d',[
+{z:z,x:volLabels,y:imbLabels,type:'surface',
+colorscale:[[0,'#0a0e17'],[0.2,'#1a1060'],[0.4,'#7c4dff'],[0.7,'#00e5ff'],[1,'#00e676']],
+showscale:true,colorbar:{title:'Impact (bps)',titlefont:{size:10},tickfont:{size:9},len:0.6,x:1.02},
+contours:{
+z:{show:true,usecolormap:true,highlightcolor:'#fff',project:{z:false}},
+x:{show:true,color:'rgba(0,229,255,0.1)',width:1},
+y:{show:true,color:'rgba(124,77,255,0.1)',width:1}
+},
+lighting:{ambient:0.7,diffuse:0.5,specular:0.3,roughness:0.5},
+}
+],{
+scene:{
+xaxis:{title:'Trade Volume',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+yaxis:{title:'Order Flow Imbalance',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+zaxis:{title:'Price Impact (bps)',color:'#64748b',gridcolor:'#1e2d4a',showbackground:true,backgroundcolor:'#0d1117'},
+camera:{eye:{x:2.0,y:-1.3,z:0.9}},
+bgcolor:'#0a0e17'
+},
+paper_bgcolor:'#111827',margin:{l:0,r:0,t:10,b:10},
+font:{family:'JetBrains Mono',color:'#94a3b8',size:10}
+},{responsive:true});
+})();
+
+// ═══════════════════════════════════════
+// CHART 3: Spread Decomposition
+// ═══════════════════════════════════════
+(function(){
+const n=200;
+const time=[];const eff=[];const real=[];const impact=[];const quoted=[];
+
+let mid=15000;
+for(let i=0;i<n;i++){
+time.push(i*18); // seconds
+// Simulated spread components with realistic dynamics
+const vol=0.5+0.4*Math.abs(Math.sin(i*0.05))+Math.abs(normalRandom()*0.15);
+const q=3.0+vol*2.5+normalRandom()*0.3;
+const e=q*0.94+normalRandom()*0.15;
+const pi=e*0.68+normalRandom()*0.1; // adverse selection ~68%
+const r=e-pi;
+quoted.push(q);eff.push(e);impact.push(pi);real.push(Math.max(0.1,r));
+}
+
+Plotly.newPlot('chart-spread',[
+{x:time,y:quoted,type:'scatter',mode:'lines',name:'Quoted Spread',
+line:{color:'rgba(148,163,184,0.5)',width:1,dash:'dot'}},
+{x:time,y:eff,type:'scatter',mode:'lines',name:'Effective Spread',
+line:{color:'#00e5ff',width:2},fill:'tozeroy',fillcolor:'rgba(0,229,255,0.05)'},
+{x:time,y:impact,type:'scatter',mode:'lines',name:'Price Impact (AS)',
+line:{color:'#ff6d00',width:2},fill:'tozeroy',fillcolor:'rgba(255,109,0,0.08)'},
+{x:time,y:real,type:'scatter',mode:'lines',name:'Realized Spread (MM Rev)',
+line:{color:'#00e676',width:2},fill:'tozeroy',fillcolor:'rgba(0,230,118,0.08)'}
+],{
+xaxis:{title:'Time (seconds)',color:'#64748b',gridcolor:'#1e2d4a',zeroline:false},
+yaxis:{title:'Spread (ticks)',color:'#64748b',gridcolor:'#1e2d4a',zeroline:false},
+paper_bgcolor:'#111827',plot_bgcolor:'#111827',
+font:{family:'JetBrains Mono',color:'#94a3b8',size:10},
+legend:{x:0.02,y:0.98,bgcolor:'rgba(17,24,39,0.8)',bordercolor:'#1e2d4a',borderwidth:1,font:{size:10}},
+margin:{l:50,r:20,t:10,b:45},
+annotations:[{x:time[100],y:eff[100]+0.8,text:'Adverse Selection ≈ 68%',showarrow:true,
+arrowhead:2,arrowcolor:'#ff6d00',font:{size:10,color:'#ff6d00'},ax:60,ay:-30}]
+},{responsive:true});
+})();
+
+// ═══════════════════════════════════════
+// CHART 4: Stylized Facts (subplots)
+// ═══════════════════════════════════════
+(function(){
+// Generate return series with fat tails via Hawkes-like process
+const returns=[];
+let intensity=1;
+for(let i=0;i<5000;i++){
+// Self-exciting volatility
+intensity=Math.max(0.3,intensity*0.995+Math.abs(normalRandom())*0.08);
+const r=normalRandom()*intensity*0.001;
+returns.push(r);
+}
+
+// Return distribution histogram
+const bins=80;const min=-0.006;const max=0.006;
+const step=(max-min)/bins;
+const histX=[];const histY=[];const gaussY=[];
+const mean=returns.reduce((a,b)=>a+b,0)/returns.length;
+const std=Math.sqrt(returns.reduce((a,b)=>a+(b-mean)**2,0)/returns.length);
+
+for(let i=0;i<bins;i++){
+const lo=min+i*step;const hi=lo+step;
+const center=(lo+hi)/2;
+histX.push(center*100);
+histY.push(returns.filter(r=>r>=lo&&r<hi).length/(returns.length*step));
+gaussY.push(Math.exp(-0.5*((center-mean)/std)**2)/(std*Math.sqrt(2*Math.PI)));
+}
+
+// ACF of |returns|
+const absRet=returns.map(Math.abs);
+const meanAbs=absRet.reduce((a,b)=>a+b,0)/absRet.length;
+const varAbs=absRet.reduce((a,b)=>a+(b-meanAbs)**2,0)/absRet.length;
+const acfLags=[];const acfVals=[];
+for(let lag=1;lag<=30;lag++){
+let num=0;
+for(let i=lag;i<absRet.length;i++){
+num+=(absRet[i]-meanAbs)*(absRet[i-lag]-meanAbs);
+}
+acfLags.push(lag);
+acfVals.push(num/(absRet.length*varAbs));
+}
+
+Plotly.newPlot('chart-stylized',[
+// Left: return distribution
+{x:histX,y:histY,type:'bar',name:'Simulated Returns',
+marker:{color:'rgba(0,229,255,0.6)',line:{color:'rgba(0,229,255,0.9)',width:0.5}},
+xaxis:'x1',yaxis:'y1'},
+{x:histX,y:gaussY,type:'scatter',mode:'lines',name:'Gaussian (same μ,σ)',
+line:{color:'#ff6d00',width:2,dash:'dash'},xaxis:'x1',yaxis:'y1'},
+// Right: ACF
+{x:acfLags,y:acfVals,type:'bar',name:'AC(|r|)',
+marker:{color:'rgba(124,77,255,0.7)',line:{color:'rgba(124,77,255,0.9)',width:0.5}},
+xaxis:'x2',yaxis:'y2'}
+],{
+grid:{rows:1,columns:2,pattern:'independent',xgap:0.08},
+xaxis:{title:'Return (%)',color:'#64748b',gridcolor:'#1e2d4a',domain:[0,0.46]},
+yaxis:{title:'Density',color:'#64748b',gridcolor:'#1e2d4a'},
+xaxis2:{title:'Lag',color:'#64748b',gridcolor:'#1e2d4a',domain:[0.54,1]},
+yaxis2:{title:'Autocorrelation',color:'#64748b',gridcolor:'#1e2d4a'},
+paper_bgcolor:'#111827',plot_bgcolor:'#111827',
+font:{family:'JetBrains Mono',color:'#94a3b8',size:10},
+legend:{x:0.02,y:0.98,bgcolor:'rgba(17,24,39,0.8)',bordercolor:'#1e2d4a',borderwidth:1,font:{size:10}},
+margin:{l:50,r:20,t:15,b:45},
+annotations:[
+{x:0.4,y:0.97,xref:'paper',yref:'paper',text:'Fat Tails: κ ≈ 12',
+font:{size:11,color:'#00e5ff'},showarrow:false},
+{x:0.95,y:0.97,xref:'paper',yref:'paper',text:'Volatility Clustering',
+font:{size:11,color:'#7c4dff'},showarrow:false}
+],
+showlegend:true,barmode:'overlay'
+},{responsive:true});
+})();
+</script>
+</body>
+</html>

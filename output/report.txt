@@ -1,0 +1,47 @@
+  ═══════════════════════════════════════════
+  MicroExchange — Simulation Report
+  ═══════════════════════════════════════════
+
+  Engine Statistics
+  ─────────────────────────────────────────
+  Total orders:    590168
+  Total trades:    209905
+  Total volume:    25457000
+  Active orders:   442418
+  Wall time:       0.79 sec
+  Throughput:      750636 events/sec
+
+  Spread Decomposition (Huang-Stoll)
+  ─────────────────────────────────────────
+  Quoted spread:      1.06 ticks
+  Effective spread:   2.51 ticks
+  Realized spread:    1.73 ticks
+  Price impact:       0.56 ticks
+  Adverse selection:  22.25%
+
+  Kyle's Lambda
+  ─────────────────────────────────────────
+  lambda:   -0.00
+  R²:       0.00
+  t-stat:   -0.6
+  N:        1049
+
+  Stylized Facts
+  ─────────────────────────────────────────
+  Excess kurtosis:     78.47
+  AC(|r|, lag=1):      0.02
+  AC(|r|, lag=5):      0.03
+  AC(|r|, lag=10):     0.03
+
+  ✓ Fat tails (kurtosis > 3) → 78.47 (benchmark: > 0 (excess kurtosis))
+  ✗ Volatility clustering (AC|r| lag1 > 0.1) → 0.02 (benchmark: 0.15-0.40)
+  ✓ Slow AC decay (lag10 > 0) → 0.03 (benchmark: > 0)
+
+  ═══════════════════════════════════════════
+
+  Output files:
+    output/trades.csv
+    output/midprices.csv
+    output/spreads.csv
+    output/report.txt
+

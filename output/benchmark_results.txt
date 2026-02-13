@@ -1,0 +1,50 @@
+
+══════════════════════════════════════════════
+  MicroExchange — Performance Benchmarks
+══════════════════════════════════════════════
+
+── Throughput Benchmark (100000 orders) ──
+  Orders processed: 100000
+  Trades executed:  88273
+  Wall time:        64.000 ms
+  Throughput:       1562504 orders/sec
+                    1.56M orders/sec
+
+── Throughput Benchmark (1000000 orders) ──
+  Orders processed: 1000000
+  Trades executed:  885578
+  Wall time:        445.918 ms
+  Throughput:       2242567 orders/sec
+                    2.24M orders/sec
+
+── Latency Benchmark (100000 orders) ──
+  Mean:    598 ns
+  P50:     213 ns
+  P90:     460 ns
+  P95:     543 ns
+  P99:     716 ns
+  P99.9:   1033 ns
+  Max:     32262008 ns
+
+  Latency Histogram:
+      <100ns │  0.1%
+     100-250 │ ############################## 61.8%
+     250-500 │ ############### 30.0%
+    500-1μs │ ### 8.0%
+      1-2μs │  0.1%
+      2-5μs │  0.0%
+       >5μs │  0.1%
+
+── Book Depth Impact ──
+  Depth  │ Add (ns)  │ Match (ns)
+  ───────┼───────────┼───────────
+     10  │     103   │     227
+     50  │     107   │     223
+    100  │     107   │     222
+    500  │     111   │     228
+   1000  │     113   │     231
+
+══════════════════════════════════════════════
+  Benchmarks complete
+══════════════════════════════════════════════
+
