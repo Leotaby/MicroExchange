@@ -36,14 +36,17 @@ public:
 
     /**
      * Wire up to an OrderBook's callbacks.
+     *
+     * Uses the multi-listener fan-out so the engine's own trade routing and
+     * any other subscribers continue to receive events alongside us.
      */
     void attach(OrderBook& book) {
-        book.set_trade_callback([this, &book](const Trade& trade) {
+        book.add_trade_listener([this, &book](const Trade& trade) {
             publish_trade(trade);
             publish_bbo_update(book);
         });
 
-        book.set_order_callback([this, &book](const Order& order) {
+        book.add_order_listener([this, &book](const Order& order) {
             if (order.status == OrderStatus::New || order.status == OrderStatus::Amended) {
                 publish_add(order);
             } else if (order.status == OrderStatus::Cancelled) {

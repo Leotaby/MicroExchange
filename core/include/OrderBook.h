@@ -63,6 +63,25 @@ public:
         , order_arena_(65536)
     {}
 
+    // ───────────────────────────────────────────
+    // Multi-subscriber dispatch
+    //
+    // The legacy set_*_callback API replaces a single slot, which made it
+    // impossible to attach the matching engine and a feed publisher to the
+    // same book without one clobbering the other. add_*_listener appends
+    // to a fan-out list and is what new code should use.
+    // ───────────────────────────────────────────
+    void add_trade_listener(TradeCallback cb) {
+        trade_listeners_.push_back(std::move(cb));
+    }
+    void add_order_listener(OrderCallback cb) {
+        order_listeners_.push_back(std::move(cb));
+    }
+    void clear_listeners() {
+        trade_listeners_.clear();
+        order_listeners_.clear();
+    }
+
     // ═══════════════════════════════════════════
     // Order Operations
     // ═══════════════════════════════════════════
@@ -82,6 +101,7 @@ public:
         order->type      = req.type;
         order->tif       = req.tif;
         order->price     = req.price;
+        order->stop_price = req.stop_price;
         order->quantity  = req.quantity;
         order->leaves_qty = req.quantity;
         order->filled_qty = 0;
@@ -92,6 +112,17 @@ public:
 
         // Index by ID for O(1) cancel/amend
         order_index_[order->id] = order;
+
+        // Stop / StopLimit orders are parked until last-traded price crosses
+        // the trigger. We park them first; if the trigger is already in the
+        // money relative to the current best they will be released by the
+        // explicit check_stop_triggers() call below.
+        if (order->type == OrderType::Stop || order->type == OrderType::StopLimit) {
+            park_stop_order(order);
+            notify_order(*order);
+            check_stop_triggers();
+            return order;
+        }
 
         // Attempt matching
         match(order);
@@ -107,17 +138,25 @@ public:
                     // Cancel unfilled remainder
                     order->cancel();
                     order_index_.erase(order->id);
-                    if (order_callback_) order_callback_(*order);
+                    notify_order(*order);
                     break;
                 case OrderType::FOK:
                     // Should have been fully filled or not at all
                     // (FOK pre-check happens in match())
                     order->cancel();
                     order_index_.erase(order->id);
-                    if (order_callback_) order_callback_(*order);
+                    notify_order(*order);
+                    break;
+                case OrderType::Stop:
+                case OrderType::StopLimit:
+                    // Handled above before reaching match() — should not get here.
                     break;
             }
         }
+
+        // Each successful aggressive cycle may move the last-traded price and
+        // therefore activate parked stop orders.
+        check_stop_triggers();
 
         return order;
     }
@@ -132,13 +171,22 @@ public:
         Order* order = it->second;
         if (!order->is_active()) return false;
 
+        // Stop orders live in stop_orders_, not in the price levels
+        if (order->type == OrderType::Stop || order->type == OrderType::StopLimit) {
+            unpark_stop_order(order);
+            order->cancel();
+            order_index_.erase(it);
+            notify_order(*order);
+            return true;
+        }
+
         // Remove from price level
         remove_from_book(order);
 
         order->cancel();
         order_index_.erase(it);
 
-        if (order_callback_) order_callback_(*order);
+        notify_order(*order);
         return true;
     }
 
@@ -190,7 +238,7 @@ public:
             }
         }
 
-        if (order_callback_) order_callback_(*order);
+        notify_order(*order);
         return true;
     }
 
@@ -248,8 +296,11 @@ public:
     // Callbacks
     // ═══════════════════════════════════════════
 
-    void set_trade_callback(TradeCallback cb) { trade_callback_ = std::move(cb); }
-    void set_order_callback(OrderCallback cb) { order_callback_ = std::move(cb); }
+    // Backwards-compatible single-slot setters. These now simply append to
+    // the listener fan-out so older code that calls set_* still works AND
+    // does not clobber any other subscribers. Prefer add_*_listener.
+    void set_trade_callback(TradeCallback cb) { add_trade_listener(std::move(cb)); }
+    void set_order_callback(OrderCallback cb) { add_order_listener(std::move(cb)); }
 
     // ═══════════════════════════════════════════
     // Statistics
@@ -260,6 +311,11 @@ public:
     [[nodiscard]] SeqNum   sequence()       const { return next_sequence_; }
     [[nodiscard]] size_t   active_orders()  const { return order_index_.size(); }
     [[nodiscard]] const std::string& symbol() const { return symbol_; }
+    [[nodiscard]] Price    last_trade_price()    const { return last_trade_price_; }
+    [[nodiscard]] uint64_t stop_triggered_count() const { return stop_triggered_count_; }
+    [[nodiscard]] size_t   parked_stop_count()   const {
+        return buy_stops_.size() + sell_stops_.size();
+    }
 
     // ═══════════════════════════════════════════
     // Invariant Checks (for testing)
@@ -324,14 +380,13 @@ private:
 
     template <typename SideMap, typename PriceCheck>
     void match_against(Order* incoming, SideMap& contra_side, PriceCheck price_ok) {
-        auto it = (incoming->is_buy()) ? contra_side.begin() : std::prev(contra_side.end());
-
+        // Walk the best level repeatedly. We compute `it` inside the loop —
+        // computing std::prev(end()) on an empty map is UB and ASan catches
+        // it (the original code did this once at function entry).
         while (incoming->leaves_qty > 0 && !contra_side.empty()) {
-            if (incoming->is_buy()) {
-                it = contra_side.begin();
-            } else {
-                it = std::prev(contra_side.end());
-            }
+            auto it = incoming->is_buy()
+                          ? contra_side.begin()
+                          : std::prev(contra_side.end());
 
             PriceLevel& level = it->second;
 
@@ -371,11 +426,12 @@ private:
                 resting->fill(fill_qty);
 
                 // Notify
-                if (trade_callback_) trade_callback_(trade);
-                if (order_callback_) order_callback_(*resting);
+                notify_trade(trade);
+                notify_order(*resting);
 
                 ++trade_count_;
                 total_volume_ += fill_qty;
+                last_trade_price_ = trade.price;
 
                 // Remove fully filled resting order
                 if (resting->is_filled()) {
@@ -412,6 +468,94 @@ private:
         auto& levels = order->is_buy() ? bids_ : asks_;
         auto [it, inserted] = levels.try_emplace(order->price, order->price);
         it->second.push_back(order);
+    }
+
+    // ── Stop-order parking ──
+    //
+    // Buy stops trigger when last_trade_price_ >= stop_price (price rising
+    // through the stop). Sell stops trigger when last_trade_price_ <=
+    // stop_price. We keep two ordered sets keyed by stop_price so the next
+    // order to release is always at one end.
+    void park_stop_order(Order* order) {
+        order->status = OrderStatus::New;
+        if (order->is_buy()) {
+            buy_stops_.insert({order->stop_price, order});
+        } else {
+            sell_stops_.insert({order->stop_price, order});
+        }
+    }
+
+    void unpark_stop_order(Order* order) {
+        auto& set = order->is_buy() ? buy_stops_ : sell_stops_;
+        auto range = set.equal_range(order->stop_price);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second == order) {
+                set.erase(it);
+                return;
+            }
+        }
+    }
+
+    // Activate any parked stop orders whose trigger has been crossed by the
+    // most recent print. Triggered orders re-enter the book as Market (Stop)
+    // or Limit (StopLimit) orders, which may themselves print and recurse —
+    // we use a re-entry guard to keep that bounded.
+    void check_stop_triggers() {
+        if (in_stop_check_) return;
+        in_stop_check_ = true;
+
+        std::vector<Order*> to_release;
+
+        while (true) {
+            to_release.clear();
+
+            // Buy stops fire when last print >= stop_price (lowest stops first)
+            while (!buy_stops_.empty() &&
+                   buy_stops_.begin()->first <= last_trade_price_) {
+                to_release.push_back(buy_stops_.begin()->second);
+                buy_stops_.erase(buy_stops_.begin());
+            }
+            // Sell stops fire when last print <= stop_price (highest stops first)
+            while (!sell_stops_.empty() &&
+                   sell_stops_.rbegin()->first >= last_trade_price_ &&
+                   last_trade_price_ != 0) {
+                auto it = std::prev(sell_stops_.end());
+                to_release.push_back(it->second);
+                sell_stops_.erase(it);
+            }
+
+            if (to_release.empty()) break;
+
+            for (Order* o : to_release) {
+                if (o->type == OrderType::Stop) {
+                    o->type = OrderType::Market;
+                    o->price = PRICE_MARKET;
+                    o->tif   = TimeInForce::IOC;
+                } else { // StopLimit
+                    o->type = OrderType::Limit;
+                    o->tif  = TimeInForce::GTC;
+                }
+                o->sequence    = next_sequence_++;
+                o->last_update = now();
+                ++stop_triggered_count_;
+
+                match(o);
+
+                if (o->leaves_qty > 0) {
+                    if (o->type == OrderType::Limit) {
+                        rest_order(o);
+                    } else {
+                        o->cancel();
+                        order_index_.erase(o->id);
+                        notify_order(*o);
+                    }
+                } else {
+                    notify_order(*o);
+                }
+            }
+        }
+
+        in_stop_check_ = false;
     }
 
     void remove_from_book(Order* order) {
@@ -464,9 +608,25 @@ private:
     SeqNum   next_sequence_ = 1;
     uint64_t trade_count_   = 0;
     uint64_t total_volume_  = 0;
+    Price    last_trade_price_     = 0;
+    uint64_t stop_triggered_count_ = 0;
+    bool     in_stop_check_        = false;
 
-    TradeCallback trade_callback_;
-    OrderCallback order_callback_;
+    // Buy stops keyed ascending: lowest stop_price triggers first.
+    // Sell stops keyed ascending: highest stop_price triggers first
+    // (we walk from rbegin in check_stop_triggers).
+    std::multimap<Price, Order*> buy_stops_;
+    std::multimap<Price, Order*> sell_stops_;
+
+    std::vector<TradeCallback> trade_listeners_;
+    std::vector<OrderCallback> order_listeners_;
+
+    void notify_trade(const Trade& t) {
+        for (auto& cb : trade_listeners_) cb(t);
+    }
+    void notify_order(const Order& o) {
+        for (auto& cb : order_listeners_) cb(o);
+    }
 };
 
 } // namespace micro_exchange::core

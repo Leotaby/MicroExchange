@@ -34,7 +34,24 @@ add_executable(test_invariants core/tests/test_invariants.cpp)
 
 # benchmarks
 add_executable(bench_throughput bench/bench_throughput.cpp)
+add_executable(bench_latency    bench/bench_latency.cpp)
 
-install(TARGETS micro_exchange test_invariants bench_throughput
+# CTest registration — `ctest` from the build dir runs the full suite.
+enable_testing()
+add_test(NAME invariants COMMAND test_invariants)
+set_tests_properties(invariants PROPERTIES
+    PASS_REGULAR_EXPRESSION "ALL TESTS PASSED"
+    TIMEOUT 60
+)
+
+# Smoke test: a tiny end-to-end run of the main simulator. Catches the
+# kind of regression where the binary builds but immediately segfaults.
+add_test(
+    NAME simulator_smoke
+    COMMAND micro_exchange --duration 5 --output ${CMAKE_BINARY_DIR}/smoke_out
+)
+set_tests_properties(simulator_smoke PROPERTIES TIMEOUT 60)
+
+install(TARGETS micro_exchange test_invariants bench_throughput bench_latency
     RUNTIME DESTINATION bin
 )

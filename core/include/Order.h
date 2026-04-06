@@ -18,10 +18,12 @@ enum class Side : uint8_t {
 };
 
 enum class OrderType : uint8_t {
-    Limit  = 0,
-    Market = 1,
-    IOC    = 2,   // Immediate or Cancel
-    FOK    = 3    // Fill or Kill
+    Limit     = 0,
+    Market    = 1,
+    IOC       = 2,   // Immediate or Cancel
+    FOK       = 3,   // Fill or Kill
+    Stop      = 4,   // Triggers a Market order when last trade crosses stop_price
+    StopLimit = 5    // Triggers a Limit order at `price` when stop_price is crossed
 };
 
 enum class TimeInForce : uint8_t {
@@ -88,6 +90,7 @@ struct alignas(64) Order {
     OrderType   type        = OrderType::Limit;
     TimeInForce tif         = TimeInForce::GTC;
     Price       price       = 0;       // In ticks
+    Price       stop_price  = 0;       // Trigger price for Stop / StopLimit
     Quantity    quantity    = 0;        // Original quantity
     Quantity    filled_qty  = 0;        // Cumulative filled
     Quantity    leaves_qty  = 0;        // Remaining = quantity - filled_qty
@@ -149,13 +152,14 @@ struct Trade {
 // ─────────────────────────────────────────────
 
 struct NewOrderRequest {
-    OrderId     id;
-    Side        side;
-    OrderType   type;
-    TimeInForce tif;
-    Price       price;
-    Quantity    quantity;
-    char        symbol[16];
+    OrderId     id          = 0;
+    Side        side        = Side::Buy;
+    OrderType   type        = OrderType::Limit;
+    TimeInForce tif         = TimeInForce::GTC;
+    Price       price       = 0;
+    Price       stop_price  = 0;   // Stop / StopLimit trigger
+    Quantity    quantity    = 0;
+    char        symbol[16]  = {};
 };
 
 struct CancelRequest {

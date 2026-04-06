@@ -154,12 +154,10 @@ int main(int argc, char* argv[]) {
     engine.add_symbol(cfg.symbol);
     auto* book = engine.get_book(cfg.symbol);
 
-    // NOTE: we used to attach FeedPublisher here but it overrides the book's
-    // trade callback which breaks the engine's internal trade routing.
-    // TODO: fix this properly with a multi-callback dispatcher.
-    // For now, feed publishing is disabled in the main simulation path.
-    // FeedPublisher feed;
-    // feed.attach(*book);
+    // The OrderBook now supports multi-listener fan-out, so attaching the
+    // feed publisher no longer clobbers the engine's internal trade routing.
+    FeedPublisher feed;
+    feed.attach(*book);
 
     // ── Agents ──
     std::vector<ZIAgent> agents;
@@ -189,15 +187,21 @@ int main(int argc, char* argv[]) {
 
     // ── Run matching ──
     std::vector<Trade> trades;
-    trades.reserve(events.size() / 3);  // rough estimate
+    std::vector<double> trade_times;       // simulated wall-clock seconds
+    trades.reserve(events.size() / 3);
+    trade_times.reserve(events.size() / 3);
 
     std::vector<Price> midprices;
     std::vector<Price> spreads;
+    std::vector<double> mid_times;
     midprices.reserve(events.size());
     spreads.reserve(events.size());
+    mid_times.reserve(events.size());
 
+    double current_event_time = 0.0;       // updated in the main loop
     engine.set_trade_callback([&](const Trade& t) {
         trades.push_back(t);
+        trade_times.push_back(current_event_time);
     });
 
     OrderId next_id = 10000;
@@ -209,10 +213,13 @@ int main(int argc, char* argv[]) {
                       << (i * 100 / events.size()) << "%\r" << std::flush;
         }
 
+        current_event_time = events[i].timestamp;
+
         auto mid = book->midprice().value_or(cfg.init_mid);
         auto sprd = book->spread().value_or(2);
         midprices.push_back(mid);
         spreads.push_back(sprd);
+        mid_times.push_back(current_event_time);
 
         size_t agent_idx = next_id % cfg.n_agents;
         auto req = agents[agent_idx].generate_order(
@@ -226,42 +233,49 @@ int main(int argc, char* argv[]) {
     // ── Analytics ──
     std::cout << "  [3/4] Computing analytics...\n";
 
-    // Spread decomposition
+    // Helper: lookup mid at a given simulated time using sorted mid_times
+    auto mid_at_time = [&](double t) -> Price {
+        if (mid_times.empty()) return cfg.init_mid;
+        auto it = std::lower_bound(mid_times.begin(), mid_times.end(), t);
+        if (it == mid_times.begin()) return midprices.front();
+        if (it == mid_times.end())   return midprices.back();
+        size_t idx = static_cast<size_t>(std::distance(mid_times.begin(), it));
+        return midprices[idx];
+    };
+
+    // Spread decomposition (Huang-Stoll). 5-second post-trade reversion window.
     SpreadAnalyzer spread_analyzer;
     std::vector<SpreadAnalyzer::TradeInput> spread_inputs;
 
-    for (size_t i = 0; i < trades.size() && i < midprices.size(); ++i) {
-        // HACK: using index-based mid lookup, not timestamp. close enough
-        // for simulation but would need proper time-matching for real data
-        size_t mid_idx = std::min(i, midprices.size() - 1);
-        size_t mid_after = std::min(i + 200, midprices.size() - 1);  // ~5s ahead
-
+    for (size_t i = 0; i < trades.size(); ++i) {
         SpreadAnalyzer::TradeInput ti;
         ti.trade_price = trades[i].price;
-        ti.mid_before = midprices[mid_idx];
-        ti.mid_after = midprices[mid_after];
-        ti.volume = trades[i].quantity;
-        ti.aggressor = trades[i].aggressor;
+        ti.mid_before  = mid_at_time(trade_times[i]);
+        ti.mid_after   = mid_at_time(trade_times[i] + 5.0);
+        ti.volume      = trades[i].quantity;
+        ti.aggressor   = trades[i].aggressor;
         spread_inputs.push_back(ti);
     }
 
     auto spread_result = spread_analyzer.compute(spread_inputs, spreads);
 
-    // Kyle's lambda
+    // Kyle's lambda — properly time-indexed now
     ImpactAnalyzer impact_analyzer;
     std::vector<ImpactAnalyzer::TradeInput> impact_inputs;
     std::vector<std::pair<double, Price>> timed_mids;
+    impact_inputs.reserve(trades.size());
+    timed_mids.reserve(midprices.size());
 
     for (size_t i = 0; i < trades.size(); ++i) {
         ImpactAnalyzer::TradeInput ti;
-        ti.timestamp = static_cast<double>(i) / 40.0;  // approximate
-        ti.price = trades[i].price;
-        ti.volume = trades[i].quantity;
+        ti.timestamp = trade_times[i];
+        ti.price     = trades[i].price;
+        ti.volume    = trades[i].quantity;
         ti.aggressor = trades[i].aggressor;
         impact_inputs.push_back(ti);
     }
     for (size_t i = 0; i < midprices.size(); ++i) {
-        timed_mids.push_back({static_cast<double>(i) / 40.0, midprices[i]});
+        timed_mids.push_back({mid_times[i], midprices[i]});
     }
 
     auto kyle_result = impact_analyzer.estimate_kyle_lambda(impact_inputs, timed_mids, 5.0);
@@ -301,6 +315,13 @@ int main(int argc, char* argv[]) {
         also(rpt, "  Total volume:    " + std::to_string(stats.total_volume));
         also(rpt, "  Active orders:   " + std::to_string(stats.active_orders));
 
+        auto fstats = feed.get_stats();
+        also(rpt, "  Feed messages:   " + std::to_string(fstats.total_messages)
+                  + " (A=" + std::to_string(fstats.add_count)
+                  + " T=" + std::to_string(fstats.trade_count)
+                  + " D=" + std::to_string(fstats.delete_count)
+                  + " Q=" + std::to_string(fstats.quote_count) + ")");
+
         {
             std::ostringstream oss;
             oss << std::fixed << std::setprecision(2) << wall_sec;
@@ -331,7 +352,11 @@ int main(int argc, char* argv[]) {
         also(rpt, "");
         also(rpt, "  Kyle's Lambda");
         also(rpt, "  ─────────────────────────────────────────");
-        also(rpt, "  lambda:   " + fmt(kyle_result.lambda));
+        {
+            std::ostringstream oss;
+            oss << std::scientific << std::setprecision(3) << kyle_result.lambda;
+            also(rpt, "  lambda:   " + oss.str() + " (ticks per share, signed)");
+        }
         also(rpt, "  R²:       " + fmt(kyle_result.r_squared));
 
         {

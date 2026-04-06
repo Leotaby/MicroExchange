@@ -1,5 +1,9 @@
 # MicroExchange
 
+[![CI](https://github.com/Leotaby/MicroExchange/actions/workflows/ci.yml/badge.svg)](https://github.com/Leotaby/MicroExchange/actions/workflows/ci.yml)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+
 **Exchange-grade CLOB matching engine + ITCH-style market data replay + microstructure analytics in modern C++20.**
 
 > **[📊 Live Interactive Dashboard](https://Leotaby.github.io/MicroExchange/)** — 3D order book surface, Kyle's lambda landscape, spread decomposition, stylized facts.
@@ -38,10 +42,10 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 │  │   ZI agents) │    │                  │    │                   │   │
 │  └──────────────┘    │  • Limit/Market  │    │  • Incremental    │   │
 │                      │  • IOC / FOK     │    │  • Snapshots      │   │
-│  ┌──────────────┐    │  • Amend/Cancel  │    │  • Trade prints   │   │
-│  │  ITCH Replay │───▶│  • Partial fills │    └────────┬──────────┘   │
-│  │  (historical │    └──────────────────┘             │              │
-│  │   data)      │                                     ▼              │
+│  ┌──────────────┐    │  • Stop/StopLim  │    │  • Trade prints   │   │
+│  │  ITCH Replay │───▶│  • Amend/Cancel  │    └────────┬──────────┘   │
+│  │  (historical │    │  • Partial fills │             │              │
+│  │   data)      │    └──────────────────┘             ▼              │
 │  └──────────────┘                              ┌────────────────────┐│
 │                                                │    Analytics       ││
 │                                                │  • Spread decomp   ││
@@ -81,6 +85,22 @@ Left: return distribution vs Gaussian — heavy tails from Hawkes-driven cluster
 
 ---
 
+## Order Types
+
+| Type | TIF | Behaviour |
+|---|---|---|
+| **Limit** | GTC / DAY | Rests on the book at `price`. |
+| **Market** | IOC | Crosses the book at any price; unfilled remainder cancelled. |
+| **IOC** | IOC | Limit semantics; remainder after the first match is cancelled. |
+| **FOK** | FOK | Pre-checked for full fill; if not, never enters the book. |
+| **Stop** | — | Parked until `last_trade_price` crosses `stop_price`, then released as Market. |
+| **StopLimit** | — | Parked until trigger; released as Limit at `price`. |
+
+Stops are stored in dedicated per-side multimaps keyed by trigger price.
+Every aggressive cycle that updates the last print runs a guarded
+`check_stop_triggers()` pass — releases are themselves matched immediately,
+which can cascade into more triggers without recursing on the call stack.
+
 ## Microstructure Concepts Implemented
 
 | Domain | Concept | Implementation |
@@ -115,13 +135,15 @@ Most GitHub "matching engines" are toy implementations — a sorted map, a match
 
 - **Volatility clustering is weak**: The AC(|r|) at lag 1 is ~0.02, well below the empirical 0.15-0.40 range. The Hawkes process generates clustered *arrivals* but the ZI agents don't modulate aggressiveness with volatility. A regime-switching model or agents that condition on recent returns would help.
 
-- **Kyle's lambda R² is near zero**: The midprice indexing uses event count rather than wall clock time, so the interval bucketing doesn't align properly. Needs timestamp-based aggregation.
-
-- **FeedPublisher overwrites OrderBook callbacks**: The `attach()` method calls `book.set_trade_callback()` which clobbers the engine's internal routing. Needs a multi-subscriber pattern (vector of callbacks, or an event bus). Disabled in main.cpp for now.
-
 - **Arena allocator never frees**: Orders accumulate in the arena for the lifetime of the process. Fine for simulation (it exits) but would need periodic cleanup or epoch-based reclamation for production.
 
 - **No proper order tracking per agent**: The cancellation logic in the simulator is approximate — agents don't track their own outstanding orders, so cancel rates are estimates.
+
+- **No iceberg / hidden-quantity orders yet.** Refilling visible slices interacts with FIFO priority in a non-obvious way; tracked in `CHANGELOG.md` as future work.
+
+### Resolved in v1.1.0
+- ~~FeedPublisher overwrites OrderBook callbacks~~ — fixed by a multi-subscriber listener fan-out on `OrderBook`. The publisher is now re-enabled in `main.cpp` and reports message counts in the per-run report.
+- ~~Kyle's lambda R² is near zero because of event-index bucketing~~ — the regression now uses Hawkes wall-clock timestamps for both trades and midprices. (R² is still data-quality-limited under default ZI parameters, but the bucketing is no longer the bottleneck.)
 
 ---
 
@@ -155,10 +177,14 @@ g++ -std=c++20 -O2 -I core/include -I md/include -I sim/include -I analytics/inc
 
 ### Run Tests & Benchmarks
 ```bash
-./bin/test_matching_engine      # Property-based invariant tests
-./bin/test_fuzz_orders          # Fuzz random order sequences
+# Full CTest suite (invariants + fuzz + end-to-end smoke run)
+cd build && ctest --output-on-failure
+
+# Or invoke binaries directly
+./bin/test_invariants            # Property-based + fuzz + stop-order tests
 ./bin/bench_throughput           # Single-thread matching throughput
-./bin/bench_latency              # Latency histogram (p50/p95/p99/p999)
+./bin/bench_latency              # Latency histogram (p50/p90/p95/p99/p99.9)
+./bin/bench_latency --ops 5000000   # ...with a longer run
 ```
 
 ---
@@ -253,7 +279,10 @@ MicroExchange/
 ├── src/
 │   └── main.cpp               # CLI entry point
 ├── bench/
-│   └── bench_throughput.cpp    # Performance benchmarks
+│   ├── bench_throughput.cpp    # Single-thread matching throughput
+│   └── bench_latency.cpp       # Per-op latency histogram (p50/p90/p99/...)
+├── .github/workflows/
+│   └── ci.yml                  # GitHub Actions: build + ctest on Linux/macOS
 ├── research/
 │   └── microstructure_paper.md # Theory + empirical writeup
 ├── output/                    # Generated by simulation

@@ -253,6 +253,7 @@ void test_cancel_correctness() {
 
     // Cancel it
     bool cancelled = book.cancel_order(1);
+    (void)cancelled;
     assert(cancelled && "Cancel should succeed");
     assert(book.active_orders() == 0 && "No active orders after cancel");
 
@@ -336,6 +337,160 @@ void test_fuzz_random_sequence() {
 }
 
 // ─────────────────────────────────────────────
+// Test 7: Stop and StopLimit triggering
+// ─────────────────────────────────────────────
+
+namespace {
+
+void seed_two_sided_book(OrderBook& book) {
+    // Ten levels each side around 10000
+    OrderId id = 1;
+    for (int lvl = 1; lvl <= 10; ++lvl) {
+        NewOrderRequest bid{};
+        bid.id = id++;
+        bid.side = Side::Buy;
+        bid.type = OrderType::Limit;
+        bid.tif = TimeInForce::GTC;
+        bid.price = 10000 - lvl;
+        bid.quantity = 500;
+        std::memcpy(bid.symbol, "TEST", 5);
+        book.add_order(bid);
+
+        NewOrderRequest ask{};
+        ask.id = id++;
+        ask.side = Side::Sell;
+        ask.type = OrderType::Limit;
+        ask.tif = TimeInForce::GTC;
+        ask.price = 10000 + lvl;
+        ask.quantity = 500;
+        std::memcpy(ask.symbol, "TEST", 5);
+        book.add_order(ask);
+    }
+}
+
+NewOrderRequest mk(OrderId id, Side s, OrderType t, Price p, Quantity q,
+                   Price stop = 0) {
+    NewOrderRequest r{};
+    r.id = id;
+    r.side = s;
+    r.type = t;
+    r.tif = (t == OrderType::Market || t == OrderType::IOC)
+                ? TimeInForce::IOC : TimeInForce::GTC;
+    r.price = p;
+    r.stop_price = stop;
+    r.quantity = q;
+    std::memcpy(r.symbol, "TEST", 5);
+    return r;
+}
+
+} // anon
+
+void test_stop_market_triggers() {
+    std::cout << "TEST: Stop (market) trigger... ";
+
+    OrderBook book("TEST");
+    seed_two_sided_book(book);
+
+    // Buy stop @ 10005 — should arm but not fire (last trade = 0)
+    book.add_order(mk(1000, Side::Buy, OrderType::Stop, 0, 200, 10005));
+    assert(book.parked_stop_count() == 1);
+
+    // Walk the print up through asks 10001..10005 (each level = 500 shares).
+    // Two market buys of 1500 shares takes us to a print at 10005, which
+    // crosses the 10005 stop trigger.
+    book.add_order(mk(1001, Side::Buy, OrderType::Market, PRICE_MARKET, 1500));
+    book.add_order(mk(1010, Side::Buy, OrderType::Market, PRICE_MARKET, 1100));
+
+    assert(book.last_trade_price() >= 10005);
+    assert(book.parked_stop_count() == 0 && "Stop should have unparked");
+    assert(book.stop_triggered_count() == 1 && "Stop should have triggered exactly once");
+
+    // Sell stop @ 9996 — should arm but not fire yet
+    book.add_order(mk(1002, Side::Sell, OrderType::Stop, 0, 200, 9996));
+    assert(book.parked_stop_count() == 1);
+
+    // Walk the print down through bids until we cross 9996. The seeded
+    // book had bids at 9999..9990 with 500 each — selling 2000 shares
+    // takes us from 9999 down to a print at 9996.
+    book.add_order(mk(1003, Side::Sell, OrderType::Market, PRICE_MARKET, 2000));
+    assert(book.last_trade_price() <= 9996);
+    assert(book.parked_stop_count() == 0);
+    assert(book.stop_triggered_count() == 2);
+
+    std::cout << "PASSED\n";
+}
+
+void test_stop_limit_triggers_and_rests() {
+    std::cout << "TEST: StopLimit converts to resting limit... ";
+
+    OrderBook book("TEST");
+    seed_two_sided_book(book);
+
+    // Buy StopLimit: trigger at 10004, limit price 10003. After triggering
+    // we want it to rest as a passive bid at 10003 (i.e. *not* crossing the
+    // book), which is the most interesting state to verify.
+    book.add_order(mk(2000, Side::Buy, OrderType::StopLimit, 10003, 200, 10004));
+    assert(book.parked_stop_count() == 1);
+
+    // Walk the print up to 10004 by consuming asks at 10001..10003 (500 each)
+    // and partially consuming 10004.
+    book.add_order(mk(2001, Side::Buy, OrderType::Market, PRICE_MARKET, 1500));
+    book.add_order(mk(2002, Side::Buy, OrderType::Market, PRICE_MARKET, 100));
+    assert(book.last_trade_price() >= 10004);
+    assert(book.parked_stop_count() == 0);
+    assert(book.stop_triggered_count() == 1);
+
+    // The released order has limit price 10003. Best ask now is 10004,
+    // so the limit cannot cross — it should rest as the new best bid.
+    assert(book.best_bid().value_or(0) == 10003 &&
+           "StopLimit should rest at its limit price");
+
+    std::cout << "PASSED\n";
+}
+
+void test_stop_cancel() {
+    std::cout << "TEST: Cancel parked stop order... ";
+
+    OrderBook book("TEST");
+    seed_two_sided_book(book);
+
+    book.add_order(mk(3000, Side::Buy, OrderType::Stop, 0, 200, 10999));
+    assert(book.parked_stop_count() == 1);
+    bool ok = book.cancel_order(3000);
+    (void)ok;
+    assert(ok && "Stop cancel should succeed");
+    assert(book.parked_stop_count() == 0);
+
+    // Driving the price through the (now-cancelled) trigger must not fire
+    book.add_order(mk(3001, Side::Buy, OrderType::Market, PRICE_MARKET, 5000));
+    assert(book.stop_triggered_count() == 0);
+
+    std::cout << "PASSED\n";
+}
+
+// ─────────────────────────────────────────────
+// Test 8: Multi-listener fan-out
+// ─────────────────────────────────────────────
+
+void test_multi_listener_fanout() {
+    std::cout << "TEST: Multi-subscriber callback fan-out... ";
+
+    OrderBook book("TEST");
+    seed_two_sided_book(book);
+
+    int trades_a = 0, trades_b = 0;
+    book.add_trade_listener([&](const Trade&) { ++trades_a; });
+    book.add_trade_listener([&](const Trade&) { ++trades_b; });
+
+    book.add_order(mk(9000, Side::Buy, OrderType::Market, PRICE_MARKET, 300));
+
+    assert(trades_a > 0);
+    assert(trades_a == trades_b && "Both listeners should see every trade");
+
+    std::cout << "PASSED (" << trades_a << " trades broadcast to 2 listeners)\n";
+}
+
+// ─────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────
 
@@ -350,6 +505,10 @@ int main() {
     test_conservation();
     test_cancel_correctness();
     test_fuzz_random_sequence();
+    test_stop_market_triggers();
+    test_stop_limit_triggers_and_rests();
+    test_stop_cancel();
+    test_multi_listener_fanout();
 
     std::cout << "\n══════════════════════════════════════════════\n";
     std::cout << "  ALL TESTS PASSED ✓\n";
