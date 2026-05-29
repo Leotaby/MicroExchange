@@ -33,28 +33,24 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        MicroExchange Architecture                    │
-│                                                                      │
-│  ┌──────────────┐    ┌──────────────────┐     ┌──────────────────┐   │
-│  │  Simulation  │───▶│  Matching Engine │───▶│  Market Data Feed │   │
-│  │  (Hawkes /   │    │  (CLOB + FIFO)   │    │  (ITCH-style)     │   │
-│  │   ZI agents) │    │                  │    │                   │   │
-│  └──────────────┘    │  • Limit/Market  │    │  • Incremental    │   │
-│                      │  • IOC / FOK     │    │  • Snapshots      │   │
-│  ┌──────────────┐    │  • Stop/StopLim  │    │  • Trade prints   │   │
-│  │  ITCH Replay │───▶│  • Amend/Cancel  │    └────────┬──────────┘   │
-│  │  (historical │    │  • Partial fills │             │              │
-│  │   data)      │    └──────────────────┘             ▼              │
-│  └──────────────┘                              ┌────────────────────┐│
-│                                                │    Analytics       ││
-│                                                │  • Spread decomp   ││
-│                                                │  • Price impact    ││
-│                                                │  • Kyle's λ        ││
-│                                                │  • Order imbalance ││
-│                                                │  • Stylized facts  ││
-│                                                └────────────────────┘│
-└──────────────────────────────────────────────────────────────────────┘
+  order sources                  matching core                      outputs
+  ─────────────                  ─────────────                      ───────
+
+  ┌──────────────┐
+  │ TCP Gateway  │─┐   binary order-entry protocol over a socket (net/)
+  └──────────────┘ │
+  ┌──────────────┐ │   ┌────────────────────────────┐    ┌──────────────────┐
+  │ Simulation   │ ├──▶│      Matching Engine        │──▶ │ Market Data Feed │
+  │ (Hawkes/ZI)  │ │   │ price-time priority (FIFO)  │    │ (ITCH-style:     │
+  └──────────────┘ │   │ Limit/Market/IOC/FOK/Stop   │    │ incremental +    │
+  ┌──────────────┐ │   │                             │    │ snapshots)       │
+  │ ITCH Replay  │─┘   │ book backends (same API):   │    └──────────────────┘
+  │ (historical) │     │  • OrderBook     (std::map) │    ┌──────────────────┐
+  └──────────────┘     │  • ArrayOrderBook (array +  │──▶ │ Analytics        │
+                       │     bitmap BBO index)       │    │ spread decomp,   │
+                       └────────────────────────────┘    │ Kyle's λ, OFI,   │
+                                                          │ stylized facts   │
+                                                          └──────────────────┘
 ```
 
 ---
@@ -241,7 +237,10 @@ Two takeaways that matter more than a single headline number:
    is ~even but median latency drops ~33% (84 ns vs 125 ns). Either way the
    array is competitive-or-faster — and the ceiling is set by the per-order
    `OrderId→Order*` hash insert and the `now()` timestamp, *not* the level
-   container, so trimming `now()` off the hot path is the next optimization.
+   container. **v1.5.0 acts on exactly this:** capturing the timestamp once per
+   order instead of once per fill raised both books ~28–30% on x86 (`std::map`
+   5.9M→7.6M/s, array 6.7M→8.8M/s); the `OrderId` hash insert is now the
+   dominant remaining per-order cost.
 2. **A flat array needs an index.** A naive linear best-bid/ask scan is ~25×
    *slower* than `std::map` on a wide/sparse book because it walks empty levels;
    the bitmap occupied-index fixes that and keeps the array ≥1.0× through

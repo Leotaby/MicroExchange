@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.5.0 (2026-05-30)
+
+### Performance
+- **Capture the event timestamp once per order instead of once per fill.** Both
+  `OrderBook` and `ArrayOrderBook` were calling `steady_clock::now()` (~17 ns)
+  for the order's entry plus every trade print and both sides of every fill —
+  ~4 clock reads per order, which profiling put at ~40% of hot-path time. The
+  engine now reads the clock once per inbound event and threads it through
+  matching via `Order::fill(qty, ts)` / `Order::cancel(ts)`. Measured on x86
+  (1M orders): `std::map` 5.9M→7.6M orders/sec (**+28%**), `ArrayOrderBook`
+  6.7M→8.8M (**+30%**). Trade streams are unchanged — the `orderbook_equivalence`
+  and `gateway_e2e` CI gates still pass.
+
+### Docs
+- README architecture diagram now shows the TCP gateway and the two book
+  backends feeding the matching engine.
+
 ## v1.4.0 (2026-05-30)
 
 ### New features

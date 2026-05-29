@@ -117,18 +117,23 @@ struct alignas(64) Order {
         return status == OrderStatus::New || status == OrderStatus::PartiallyFilled;
     }
 
-    void fill(Quantity qty) noexcept {
+    // Hot-path variants take a caller-supplied timestamp. The matching engine
+    // captures now() once per inbound event and threads it through every fill,
+    // rather than re-reading the clock (~17ns) several times per order.
+    void fill(Quantity qty, Timestamp ts) noexcept {
         filled_qty += qty;
         leaves_qty -= qty;
-        last_update = now();
+        last_update = ts;
         status = (leaves_qty == 0) ? OrderStatus::Filled : OrderStatus::PartiallyFilled;
     }
+    void fill(Quantity qty) noexcept { fill(qty, now()); }
 
-    void cancel() noexcept {
+    void cancel(Timestamp ts) noexcept {
         status = OrderStatus::Cancelled;
         leaves_qty = 0;
-        last_update = now();
+        last_update = ts;
     }
+    void cancel() noexcept { cancel(now()); }
 };
 
 // ─────────────────────────────────────────────

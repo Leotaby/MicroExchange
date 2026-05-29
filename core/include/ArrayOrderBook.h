@@ -86,6 +86,7 @@ public:
     // ═══════════════════════════════════════════
 
     Order* add_order(const NewOrderRequest& req) {
+        ts_ = now();                 // one clock read per event; reused for every fill
         Order* order = order_arena_.allocate();
         new (order) Order{};
 
@@ -99,8 +100,8 @@ public:
         order->quantity   = req.quantity;
         order->leaves_qty = req.quantity;
         order->filled_qty = 0;
-        order->entry_time = now();
-        order->last_update = order->entry_time;
+        order->entry_time = ts_;
+        order->last_update = ts_;
         order->status     = OrderStatus::New;
         std::memcpy(order->symbol, req.symbol, sizeof(order->symbol));
 
@@ -108,7 +109,7 @@ public:
 
         // FOK: only execute if the whole quantity can be filled right now.
         if (order->type == OrderType::FOK && !can_fill_completely(order)) {
-            order->cancel();
+            order->cancel(ts_);
             order_index_.erase(order->id);
             notify_order(*order);
             return order;
@@ -121,7 +122,7 @@ public:
                 rest_order(order);
             } else {
                 // Market / IOC / FOK remainder, or out-of-band limit, cancels.
-                order->cancel();
+                order->cancel(ts_);
                 order_index_.erase(order->id);
                 notify_order(*order);
             }
@@ -280,7 +281,7 @@ private:
             trade.sequence  = next_sequence_++;
             trade.price     = resting->price;   // price improvement to the resting side
             trade.quantity  = fill_qty;
-            trade.exec_time = now();
+            trade.exec_time = ts_;
             trade.aggressor = incoming->side;
             std::memcpy(trade.symbol, incoming->symbol, sizeof(trade.symbol));
 
@@ -293,8 +294,8 @@ private:
             }
 
             level.reduce_quantity(fill_qty);
-            incoming->fill(fill_qty);
-            resting->fill(fill_qty);
+            incoming->fill(fill_qty, ts_);
+            resting->fill(fill_qty, ts_);
 
             notify_trade(trade);
             notify_order(*resting);
@@ -377,6 +378,8 @@ private:
 
     std::unordered_map<OrderId, Order*> order_index_;
     ArenaAllocator<Order>               order_arena_;
+
+    Timestamp ts_{};   // wall-clock captured once per inbound event (hot path)
 
     SeqNum   next_sequence_     = 1;
     uint64_t trade_count_       = 0;

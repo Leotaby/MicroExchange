@@ -92,6 +92,7 @@ public:
      */
     Order* add_order(const NewOrderRequest& req) {
         // Allocate from arena (zero malloc)
+        ts_ = now();                 // one clock read per event; reused for every fill
         Order* order = order_arena_.allocate();
         new (order) Order{};
 
@@ -105,8 +106,8 @@ public:
         order->quantity  = req.quantity;
         order->leaves_qty = req.quantity;
         order->filled_qty = 0;
-        order->entry_time = now();
-        order->last_update = order->entry_time;
+        order->entry_time = ts_;
+        order->last_update = ts_;
         order->status    = OrderStatus::New;
         std::memcpy(order->symbol, req.symbol, sizeof(order->symbol));
 
@@ -136,14 +137,14 @@ public:
                 case OrderType::Market:
                 case OrderType::IOC:
                     // Cancel unfilled remainder
-                    order->cancel();
+                    order->cancel(ts_);
                     order_index_.erase(order->id);
                     notify_order(*order);
                     break;
                 case OrderType::FOK:
                     // Should have been fully filled or not at all
                     // (FOK pre-check happens in match())
-                    order->cancel();
+                    order->cancel(ts_);
                     order_index_.erase(order->id);
                     notify_order(*order);
                     break;
@@ -201,6 +202,7 @@ public:
         Order* order = it->second;
         if (!order->is_active()) return false;
 
+        ts_ = now();
         bool price_changed = (req.new_price != 0 && req.new_price != order->price);
         bool qty_increased = (req.new_quantity != 0 && req.new_quantity > order->leaves_qty);
 
@@ -215,7 +217,7 @@ public:
             }
             order->sequence = next_sequence_++;
             order->status = OrderStatus::Amended;
-            order->last_update = now();
+            order->last_update = ts_;
 
             // Re-match then rest
             match(order);
@@ -228,7 +230,7 @@ public:
             order->leaves_qty = req.new_quantity;
             order->quantity -= reduction;
             order->status = OrderStatus::Amended;
-            order->last_update = now();
+            order->last_update = ts_;
 
             // Update level aggregate
             auto& levels = order->is_buy() ? bids_ : asks_;
@@ -405,7 +407,7 @@ private:
                 trade.sequence = next_sequence_++;
                 trade.price = resting->price;  // Resting order's price (price improvement)
                 trade.quantity = fill_qty;
-                trade.exec_time = now();
+                trade.exec_time = ts_;
                 trade.aggressor = incoming->side;
                 std::memcpy(trade.symbol, incoming->symbol, sizeof(trade.symbol));
 
@@ -422,8 +424,8 @@ private:
                 // because fill() modifies the order in-place and the level still references it.
                 // Learned this the hard way (assertion failures in PriceLevel::reduce_quantity).
                 level.reduce_quantity(fill_qty);
-                incoming->fill(fill_qty);
-                resting->fill(fill_qty);
+                incoming->fill(fill_qty, ts_);
+                resting->fill(fill_qty, ts_);
 
                 // Notify
                 notify_trade(trade);
@@ -536,7 +538,7 @@ private:
                     o->tif  = TimeInForce::GTC;
                 }
                 o->sequence    = next_sequence_++;
-                o->last_update = now();
+                o->last_update = ts_;
                 ++stop_triggered_count_;
 
                 match(o);
@@ -545,7 +547,7 @@ private:
                     if (o->type == OrderType::Limit) {
                         rest_order(o);
                     } else {
-                        o->cancel();
+                        o->cancel(ts_);
                         order_index_.erase(o->id);
                         notify_order(*o);
                     }
@@ -604,6 +606,8 @@ private:
 
     std::unordered_map<OrderId, Order*> order_index_;
     ArenaAllocator<Order>               order_arena_;
+
+    Timestamp ts_{};   // wall-clock captured once per inbound event (hot path)
 
     SeqNum   next_sequence_ = 1;
     uint64_t trade_count_   = 0;
