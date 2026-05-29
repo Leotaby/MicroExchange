@@ -225,23 +225,23 @@ runs the same order stream through both, asserts the trade streams are
 **byte-identical**, then compares performance (1M orders, ~9900–10100 band):
 
 ```
-Correctness:  176,732 trades, identical stream  ✓  (CI-gated)
+Correctness:  identical trade stream on every run  ✓  (CI-gated equivalence test)
 
-Per-order latency      P50      P99
-  std::map             125 ns   375 ns
-  array (bitmap)        84 ns   334 ns     ← ~33% lower median latency
-
-Throughput            ~6.0M orders/sec for both (within noise)
+Performance (1M orders; hardware-dependent — example below is Apple M-series)
+                    std::map       array (bitmap)
+  Throughput        ~7.9 M/s        ~9.6 M/s        → ~1.2x
+  Latency  P50      84 ns           83 ns
+  Latency  P99      292 ns          250 ns          → lower tail
 ```
 
 Two takeaways that matter more than a single headline number:
 
-1. **Latency, not throughput, is where the array wins.** Median per-order
-   latency drops ~33% from the O(1) tick-indexed level ops; throughput is
-   ~equal because the per-order cost here is dominated by the `OrderId→Order*`
-   hash insert and the `now()` timestamp, *not* the level container — so the
-   container swap can't move it much. (Trimming `now()` from the hot path is
-   the next optimization.)
+1. **Where the win lands depends on the CPU.** On Apple Silicon the array is
+   ~1.2× higher throughput with a lower tail; on the x86 CI sandbox throughput
+   is ~even but median latency drops ~33% (84 ns vs 125 ns). Either way the
+   array is competitive-or-faster — and the ceiling is set by the per-order
+   `OrderId→Order*` hash insert and the `now()` timestamp, *not* the level
+   container, so trimming `now()` off the hot path is the next optimization.
 2. **A flat array needs an index.** A naive linear best-bid/ask scan is ~25×
    *slower* than `std::map` on a wide/sparse book because it walks empty levels;
    the bitmap occupied-index fixes that and keeps the array ≥1.0× through
@@ -249,6 +249,28 @@ Two takeaways that matter more than a single headline number:
    two-level summary bitmap — tracked as future work.
 
 Run it yourself: `./bin/bench_orderbook_compare`.
+
+### Networked order entry (TCP gateway)
+
+The order books are in-process; a real exchange sits behind a network front-end.
+`net/OrderGateway` is a single-threaded TCP gateway that accepts a client
+connection, decodes a compact **binary order-entry protocol**
+(`net/OrderEntryProtocol.h` — length-prefixed framing; `NewOrder`/`Cancel` in,
+`Exec`/`Ack` out), feeds the `MatchingEngine`, and streams execution reports
+back. It mirrors the standard exchange model: one sequential gateway in front of
+a single-threaded, deterministic matching core.
+
+The end-to-end test (`test_gateway`, CI-gated) starts the server on an ephemeral
+port, streams 3,000 orders over a real loopback socket, and asserts the
+networked path produces **exactly the same trades and volume** as the in-process
+engine — serialising orders over TCP changes nothing about the match.
+
+One low-latency networking detail worth calling out: both ends set
+**`TCP_NODELAY`**. A lock-step order-entry protocol sends tiny messages, and
+leaving Nagle's algorithm on (the default) collides with delayed-ACKs to add
+~40 ms per round trip — a real bug this project hit during development and fixed.
+
+Run it yourself: `./bin/test_gateway`.
 
 ### Spread Decomposition (1 hr simulated AAPL — deterministic)
 ```
@@ -341,6 +363,12 @@ MicroExchange/
 │       ├── FeedMessage.h      # ITCH-style wire protocol
 │       ├── FeedPublisher.h    # Incremental + snapshot publisher
 │       └── SPSCRingBuffer.h   # Lock-free SPSC queue
+├── net/                       # Order-entry gateway (TCP)
+│   ├── include/
+│   │   ├── OrderEntryProtocol.h # Binary wire protocol (framing + messages)
+│   │   └── OrderGateway.h       # Single-threaded TCP gateway → MatchingEngine
+│   └── tests/
+│       └── test_gateway.cpp     # Loopback end-to-end test (CI-gated)
 ├── sim/                       # Event-driven simulation
 │   └── include/
 │       ├── HawkesProcess.h    # Clustered arrivals

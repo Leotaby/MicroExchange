@@ -215,7 +215,8 @@ void test_conservation() {
     }
 
     // Verify: total volume from trade callbacks == total filled across all orders
-    uint64_t total_filled = 0;
+    // (marked maybe_unused: only read inside assert(), which NDEBUG compiles out)
+    [[maybe_unused]] uint64_t total_filled = 0;
     for (const auto* order : all_orders) {
         assert(order->filled_qty + order->leaves_qty <= order->quantity ||
                order->status == OrderStatus::Cancelled);

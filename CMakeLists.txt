@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(MicroExchange
-    VERSION 1.3.0
+    VERSION 1.4.0
     LANGUAGES CXX
     DESCRIPTION "Exchange-grade CLOB matching engine + microstructure analytics"
 )
@@ -24,13 +24,19 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/md/include
     ${CMAKE_SOURCE_DIR}/sim/include
     ${CMAKE_SOURCE_DIR}/analytics/include
+    ${CMAKE_SOURCE_DIR}/net/include
 )
+
+# Threading for the TCP order-entry gateway (server thread in its self-test).
+find_package(Threads REQUIRED)
 
 # main simulation binary
 add_executable(micro_exchange src/main.cpp)
 
 # tests
 add_executable(test_invariants core/tests/test_invariants.cpp)
+add_executable(test_gateway net/tests/test_gateway.cpp)
+target_link_libraries(test_gateway PRIVATE Threads::Threads)
 
 # benchmarks
 add_executable(bench_throughput bench/bench_throughput.cpp)
@@ -62,7 +68,15 @@ set_tests_properties(orderbook_equivalence PROPERTIES
     TIMEOUT 120
 )
 
-install(TARGETS micro_exchange test_invariants
+# Gateway gate: orders streamed over TCP and parsed back must produce trades
+# identical to the in-process engine, or CI fails.
+add_test(NAME gateway_e2e COMMAND test_gateway)
+set_tests_properties(gateway_e2e PROPERTIES
+    PASS_REGULAR_EXPRESSION "GATEWAY TEST PASSED"
+    TIMEOUT 60
+)
+
+install(TARGETS micro_exchange test_invariants test_gateway
         bench_throughput bench_latency bench_orderbook_compare
     RUNTIME DESTINATION bin
 )

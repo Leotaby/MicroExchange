@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.4.0 (2026-05-30)
+
+### New features
+- **TCP order-entry gateway** (`net/OrderGateway.h`) — a single-threaded POSIX
+  socket server that accepts a client, decodes a binary order-entry protocol,
+  feeds the `MatchingEngine`, and streams `Exec`/`Ack` reports back. Binds to
+  loopback; port 0 selects an ephemeral port.
+- **Binary order-entry wire protocol** (`net/OrderEntryProtocol.h`) — 8-byte
+  length-prefixed framing; `NewOrder`/`Cancel` inbound, `Exec`/`Ack` outbound;
+  naturally-aligned structs (UBSan-clean) with partial-read-safe `read_full` /
+  `write_full` helpers.
+- **End-to-end gateway test** (`net/tests/test_gateway.cpp`) — starts the server
+  on a thread, streams 3,000 orders over a loopback socket, and asserts the
+  networked path's trades and volume match the in-process engine exactly.
+  Registered as the CTest gate `gateway_e2e`.
+
+### Fixes
+- Both gateway endpoints set `TCP_NODELAY`. A lock-step small-message protocol
+  with Nagle's algorithm enabled collided with delayed-ACKs for ~40 ms per round
+  trip; disabling Nagle removed it. (Surfaced as a hang in the gateway test.)
+- Silenced a Release-only `-Wunused-but-set-variable` warning in
+  `test_invariants.cpp` (the variable is only read inside an `assert`, which
+  `-DNDEBUG` compiles out).
+
+### Notes
+- The gateway serves one client at a time (the standard single-gateway model);
+  multiplexing many clients via epoll/kqueue is future work.
+
 ## v1.3.0 (2026-05-30)
 
 ### New features
