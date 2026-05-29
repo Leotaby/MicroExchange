@@ -7,8 +7,9 @@
  * Usage:
  *   ./micro_exchange                      # default 1hr simulation
  *   ./micro_exchange --duration 7200      # 2hr simulation
- *   ./micro_exchange --orders 500000      # cap at 500k events
+ *   ./micro_exchange --symbol AAPL        # set the symbol
  *   ./micro_exchange --output results/    # custom output dir
+ *   ./micro_exchange -v                   # verbose
  */
 
 #include "MatchingEngine.h"
@@ -280,9 +281,10 @@ int main(int argc, char* argv[]) {
 
     auto kyle_result = impact_analyzer.estimate_kyle_lambda(impact_inputs, timed_mids, 5.0);
 
-    // Stylized facts
+    // Stylized facts — sampled on 1-second clock-time bars (log returns),
+    // not per-event, to avoid the zero-inflated integer-tick artifact.
     StylizedFacts stylized;
-    auto facts = stylized.compute(midprices);
+    auto facts = stylized.compute(midprices, mid_times, 1.0);
 
     // ── Output ──
     std::cout << "  [4/4] Writing output to " << cfg.out_dir << "/\n\n";

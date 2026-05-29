@@ -8,34 +8,35 @@
   Total trades:    209905
   Total volume:    25457000
   Active orders:   442418
-  Wall time:       0.79 sec
-  Throughput:      750636 events/sec
+  Feed messages:   629715 (A=0 T=209905 D=0 Q=419810)
+  Wall time:       1.11 sec
+  Throughput:      530743 events/sec
 
   Spread Decomposition (Huang-Stoll)
   ─────────────────────────────────────────
   Quoted spread:      1.06 ticks
-  Effective spread:   2.51 ticks
-  Realized spread:    1.73 ticks
-  Price impact:       0.56 ticks
-  Adverse selection:  22.25%
+  Effective spread:   0.77 ticks
+  Realized spread:    0.83 ticks
+  Price impact:       -0.06 ticks
+  Adverse selection:  -7.51%
 
   Kyle's Lambda
   ─────────────────────────────────────────
-  lambda:   -0.00
-  R²:       0.00
-  t-stat:   -0.6
-  N:        1049
+  lambda:   1.640e-05 (ticks per share, signed)
+  R²:       0.01
+  t-stat:   3.1
+  N:        719
 
   Stylized Facts
   ─────────────────────────────────────────
-  Excess kurtosis:     78.47
-  AC(|r|, lag=1):      0.02
-  AC(|r|, lag=5):      0.03
-  AC(|r|, lag=10):     0.03
+  Excess kurtosis:     1.16
+  AC(|r|, lag=1):      0.24
+  AC(|r|, lag=5):      0.06
+  AC(|r|, lag=10):     0.04
 
-  ✓ Fat tails (kurtosis > 3) → 78.47 (benchmark: > 0 (excess kurtosis))
-  ✗ Volatility clustering (AC|r| lag1 > 0.1) → 0.02 (benchmark: 0.15-0.40)
-  ✓ Slow AC decay (lag10 > 0) → 0.03 (benchmark: > 0)
+  ✓ Fat tails (kurtosis > 3) → 1.16 (benchmark: > 0 (excess kurtosis))
+  ✓ Volatility clustering (AC|r| lag1 > 0.1) → 0.24 (benchmark: 0.15-0.40)
+  ✓ Slow AC decay (lag10 > 0) → 0.04 (benchmark: > 0)
 
   ═══════════════════════════════════════════
 

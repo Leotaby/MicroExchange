@@ -9,6 +9,10 @@ TEST: Deterministic matching... PASSED (7515 trades matched identically)
 TEST: Quantity conservation... PASSED (volume conserved across 4267600 units)
 TEST: Cancel correctness... PASSED
 TEST: Fuzz random event sequence... PASSED (100,000 random events, invariants held)
+TEST: Stop (market) trigger... PASSED
+TEST: StopLimit converts to resting limit... PASSED
+TEST: Cancel parked stop order... PASSED
+TEST: Multi-subscriber callback fan-out... PASSED (1 trades broadcast to 2 listeners)
 
 ══════════════════════════════════════════════
   ALL TESTS PASSED ✓

@@ -20,11 +20,11 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 
 ![Price Impact Surface](docs/images/impact_surface_3d.png)
 
-**Spread Decomposition** - Effective spread decomposed into realized spread (MM revenue) and price impact (adverse selection ≈ 68%):
+**Spread Decomposition** - Effective spread split into realized spread (MM revenue) and price impact. *Real large-caps run ~50–70% adverse selection; this zero-intelligence sim produces ≈0 (uninformed flow → no permanent impact) — see [reproducible results](#sample-results).*
 
 ![Spread Decomposition](docs/images/spread_decomposition.png)
 
-**Stylized Facts** - Fat-tailed returns (κ ≈ 12 vs Gaussian) and volatility clustering (positive ACF of |returns|):
+**Stylized Facts** - Return distribution vs Gaussian and the autocorrelation of |returns|. *Reproduced on 1s bars: volatility clustering AC(\|r\|,1) ≈ 0.24; fat tails are mild (excess kurtosis ≈ 1.2) under zero-intelligence flow — see [reproducible results](#sample-results).*
 
 ![Stylized Facts](docs/images/stylized_facts.png)
 
@@ -74,7 +74,7 @@ Price impact as a function of trade volume and order flow imbalance. The concave
 ![Impact 3D](docs/images/impact_3d.png)
 
 ### Spread Decomposition — Huang-Stoll (1997)
-Effective spread decomposed into realized spread (market maker revenue) and price impact (adverse selection). The adverse selection component dominates at ~68%.
+Effective spread decomposed into realized spread (market maker revenue) and price impact. In liquid equities adverse selection is ~50–70%; under zero-intelligence flow it collapses to ≈0 (no informed trading), consistent with Kyle's λ ≈ 0. Reproducing realistic adverse selection requires informed agents (see Known Issues / future work).
 
 ![Spread Decomposition](docs/images/spread_decomposition.png)
 
@@ -133,7 +133,9 @@ Most GitHub "matching engines" are toy implementations — a sorted map, a match
 
 ## Known Issues & Limitations
 
-- **Volatility clustering is weak**: The AC(|r|) at lag 1 is ~0.02, well below the empirical 0.15-0.40 range. The Hawkes process generates clustered *arrivals* but the ZI agents don't modulate aggressiveness with volatility. A regime-switching model or agents that condition on recent returns would help.
+- **No informed traders → adverse selection ≈ 0**: Agents are zero-intelligence, so order flow carries no private information. Both the Huang-Stoll decomposition (price impact ≈ 0) and Kyle's λ (R² ≈ 0.01) correctly report this. It is a *modeling* limitation, not a bug — reproducing realistic adverse selection (~50–70% of the spread) requires a Glosten-Milgrom-style informed-trader population. Tracked as future work.
+
+- **Fat tails are mild**: on 1s bars the ZI midprice is contained (a ~15-tick range over the hour), so excess kurtosis is ~1.2 — present but below intraday equities. Deep tails need informed/trending flow or a fundamental-value process.
 
 - **Arena allocator never frees**: Orders accumulate in the arena for the lifetime of the process. Fine for simulation (it exits) but would need periodic cleanup or epoch-based reclamation for production.
 
@@ -141,9 +143,16 @@ Most GitHub "matching engines" are toy implementations — a sorted map, a match
 
 - **No iceberg / hidden-quantity orders yet.** Refilling visible slices interacts with FIFO priority in a non-obvious way; tracked in `CHANGELOG.md` as future work.
 
+- **Visualization PNGs predate v1.2.0**: the 3D surface images above are illustrative and were rendered before the analytics fixes below; the authoritative, reproducible numbers live in [`output/report.txt`](output/report.txt). Regenerating the figures from current output is tracked as future work.
+
+### Resolved in v1.2.0
+- ~~Volatility clustering is weak (AC\|r\| ≈ 0.02)~~ — was a sampling artifact. Returns are now computed on fixed 1-second bars as log returns instead of per-event on the integer-tick mid; **AC(|r|, lag 1) = 0.24**, inside the empirical 0.15–0.40 range.
+- ~~Excess kurtosis is a spurious 78~~ — same root cause (a return series that was ≈99% exact zeros). Time-bar log returns give a realistic **1.16**.
+- ~~Spread decomposition doesn't satisfy `effective = realized + impact`~~ — the price-impact term was averaged in absolute value while realized was signed. Now consistently signed, so the identity holds and the adverse-selection % is meaningful.
+
 ### Resolved in v1.1.0
 - ~~FeedPublisher overwrites OrderBook callbacks~~ — fixed by a multi-subscriber listener fan-out on `OrderBook`. The publisher is now re-enabled in `main.cpp` and reports message counts in the per-run report.
-- ~~Kyle's lambda R² is near zero because of event-index bucketing~~ — the regression now uses Hawkes wall-clock timestamps for both trades and midprices. (R² is still data-quality-limited under default ZI parameters, but the bucketing is no longer the bottleneck.)
+- ~~Kyle's lambda R² is near zero because of event-index bucketing~~ — the regression now uses Hawkes wall-clock timestamps for both trades and midprices. (R² is still low because ZI flow is uninformed — see above — but the bucketing is no longer the bottleneck.)
 
 ---
 
@@ -165,15 +174,18 @@ g++ -std=c++20 -O2 -I core/include -I md/include -I sim/include -I analytics/inc
 
 ### Run Simulation
 ```bash
-# Generate 1M orders via Hawkes process, match, and compute analytics
-./bin/micro_exchange --mode simulate --orders 1000000 --symbol AAPL
+# Default 1-hour Hawkes simulation → match → analytics → output/
+./bin/micro_exchange
 
-# Replay ITCH-format historical data
-./bin/micro_exchange --mode replay --file data/sample_itch.bin
+# Custom duration (seconds), symbol, and output directory
+./bin/micro_exchange --duration 7200 --symbol AAPL --output output
 
-# Run full analytics pipeline
-./bin/micro_exchange --mode analyze --input results/trades.csv
+# Verbose
+./bin/micro_exchange -v
 ```
+> Binary feed replay is implemented at the library level (`md/FeedReplayer`,
+> via `FeedPublisher::dump_to_file`) but is not yet wired to the CLI — tracked
+> as future work alongside real NASDAQ ITCH ingestion.
 
 ### Run Tests & Benchmarks
 ```bash
@@ -191,34 +203,58 @@ cd build && ctest --output-on-failure
 
 ## Sample Results
 
-### Throughput
+### Throughput & Latency
 ```
 Single-thread matching throughput: 2.24M orders/sec (1M order run)
-Median latency:   255 ns
-P95 latency:      654 ns
-P99 latency:      876 ns
-P99.9 latency:  1,371 ns
+Mean latency:     598 ns
+P50 latency:      213 ns
+P90 latency:      460 ns
+P95 latency:      543 ns
+P99 latency:      716 ns
+P99.9 latency:  1,033 ns
 ```
+*(Throughput/latency are hardware-dependent — numbers above are from the committed `output/benchmark_results.txt`. The analytics below are deterministic and identical on any machine.)*
 
-### Spread Decomposition (1hr simulated AAPL)
+### Spread Decomposition (1 hr simulated AAPL — deterministic)
 ```
-590K orders → 210K trades
+590,168 orders → 209,905 trades
 
 Metric                  Value (ticks)
 ─────────────────────────────────────
-Quoted spread           1.06
-Effective spread        2.51
-Realized spread         1.73
-Price impact            0.56
-Adverse selection %     22.3%
+Quoted spread            1.06
+Effective spread         0.77
+Realized spread          0.83
+Price impact            -0.06
+Adverse selection %     -7.5%
 ```
+The decomposition satisfies the Huang-Stoll identity `effective = realized + impact`
+(0.77 = 0.83 + (−0.06)). The **negative** price impact is the economically correct
+result for this market: agents are zero-intelligence, so order flow carries no
+information and prices mean-revert after trades rather than trending — i.e.
+adverse selection ≈ 0. Real large-cap equities run ~50–70% because real flow is
+partly informed; reproducing that requires informed agents (see Known Issues).
 
-### Stylized Facts
+### Kyle's λ (5-second buckets)
 ```
-Excess kurtosis:    78.5  (benchmark: > 0)     ✓
-AC(|r|, lag=1):     0.02  (benchmark: 0.15+)   ✗ (see Known Issues)
-AC(|r|, lag=10):    0.03  (benchmark: > 0)      ✓
+lambda:   1.64e-05 ticks/share   (t-stat 3.1)
+R²:       0.01                    (N = 719 intervals)
 ```
+Order flow explains ~1% of price variation — again the expected signature of
+uninformed flow, and **consistent** with the ≈0 adverse selection above.
+
+### Stylized Facts (1-second bars, log returns)
+```
+Excess kurtosis:    1.16  (benchmark: > 0)        ✓  mild fat tails
+AC(|r|, lag=1):     0.24  (benchmark: 0.15-0.40)  ✓  volatility clustering
+AC(|r|, lag=5):     0.06  (benchmark: > 0)        ✓
+AC(|r|, lag=10):    0.04  (benchmark: > 0)        ✓
+```
+Volatility clustering (AC|r| ≈ 0.24) is now squarely in the empirical range — the
+Hawkes self-exciting arrivals generate it, but the effect was previously hidden by
+sampling returns per-event on the integer-tick mid (≈99% exact zeros), which had
+inflated excess kurtosis to a spurious 78. Sampling on fixed time bars with log
+returns is the standard methodology (Cont, 2001) and gives the honest picture:
+strong clustering, mild fat tails (deep tails would need informed/trending flow).
 
 ---
 
@@ -235,15 +271,19 @@ AC(|r|, lag=10):    0.03  (benchmark: > 0)      ✓
 
 ## Validation & Correctness
 
+All ten checks below pass via `./bin/test_invariants` (and `ctest`):
+
 | Test Category | What It Verifies |
 |---|---|
-| **Invariant: No crossed book** | After every match cycle, best bid < best ask |
-| **Invariant: FIFO preserved** | Orders at same price fill in arrival order |
-| **Invariant: Deterministic** | Same input stream → identical output on every run |
-| **Fuzz: Random sequences** | 10M random order events with invariant checks |
-| **Replay consistency** | Reconstructed book from incremental feed matches snapshot |
-| **Metric cross-check** | Effective spread = quoted spread (for market orders at BBO) |
-| **Conservation** | Total filled quantity = sum of both sides of every trade |
+| **No crossed book** | After every match cycle, best bid < best ask (50K random orders) |
+| **FIFO priority** | Orders at the same price fill in arrival order |
+| **Deterministic matching** | Same input stream → identical trades on every run |
+| **Quantity conservation** | Filled quantity balances on both sides of every trade |
+| **Cancel correctness** | Cancelled orders never match; book stays consistent |
+| **Fuzz: random events** | 100K random order events with all invariants checked |
+| **Stop / StopLimit triggers** | Stops release as market/limit when the print crosses the trigger |
+| **Cancel parked stop** | Parked stop orders can be cancelled before triggering |
+| **Multi-subscriber fan-out** | Trades broadcast to engine + feed publisher without clobbering |
 
 ---
 
@@ -303,7 +343,7 @@ MicroExchange/
 
 ## Research Paper
 
-See [`research/microstructure_paper.md`](research/microstructure_paper.md) for a 12-page writeup covering:
+See [`research/microstructure_paper.md`](research/microstructure_paper.md) for a theory + empirical writeup covering:
 
 - Price formation theory (Glosten-Milgrom, Kyle, Ho-Stoll)
 - Spread decomposition methodology (Huang-Stoll, realized spread)

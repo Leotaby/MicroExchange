@@ -83,19 +83,48 @@ public:
      */
     FactMetrics compute(
         const std::vector<Price>& midprices,
+        const std::vector<double>& mid_times = {},
+        double bar_sec = 1.0,
         const std::vector<Quantity>& volumes = {},
         const std::vector<Price>& spreads = {},
         const std::vector<double>& imbalances = {}) const
     {
         FactMetrics result{};
 
-        // ── Compute returns ──
+        // ── Sample the midprice on fixed clock-time bars, then take LOG returns ──
+        //
+        // Why not per-event returns? The raw event series samples the midpoint on
+        // every order arrival, but ~99% of arrivals don't move the (integer-tick)
+        // mid. That yields a return series dominated by exact zeros, which
+        // manufactures enormous spurious excess kurtosis (a delta spike at zero)
+        // and crushes the autocorrelation of |r|. Stylized facts are defined on
+        // returns sampled at a fixed frequency (Cont, 2001), so we bucket the mid
+        // into bars of `bar_sec` seconds, take the last mid observed in each bar,
+        // and compute log returns r_k = ln(M_k / M_{k-1}).
+        std::vector<double> bar_close;
+        if (!mid_times.empty() && mid_times.size() == midprices.size() && bar_sec > 0.0) {
+            const double t0 = mid_times.front();
+            long cur_bar = -1;
+            double last_mid = 0.0;
+            for (size_t i = 0; i < midprices.size(); ++i) {
+                long b = static_cast<long>((mid_times[i] - t0) / bar_sec);
+                if (b != cur_bar) {
+                    if (cur_bar >= 0) bar_close.push_back(last_mid);
+                    cur_bar = b;
+                }
+                last_mid = static_cast<double>(midprices[i]);
+            }
+            if (cur_bar >= 0) bar_close.push_back(last_mid);
+        } else {
+            // Fallback (no timestamps supplied): use the raw mid series as-is.
+            bar_close.assign(midprices.begin(), midprices.end());
+        }
+
         std::vector<double> returns;
-        for (size_t i = 1; i < midprices.size(); ++i) {
-            if (midprices[i-1] > 0) {
-                returns.push_back(
-                    static_cast<double>(midprices[i] - midprices[i-1]) / midprices[i-1]
-                );
+        returns.reserve(bar_close.size());
+        for (size_t i = 1; i < bar_close.size(); ++i) {
+            if (bar_close[i-1] > 0.0 && bar_close[i] > 0.0) {
+                returns.push_back(std::log(bar_close[i] / bar_close[i-1]));
             }
         }
 

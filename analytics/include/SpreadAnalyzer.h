@@ -104,11 +104,18 @@ public:
             double real = 2.0 * d * (t.trade_price - t.mid_after);
             double impact = eff - real;  // = 2 * d * (mid_after - mid_before)
 
-            sum_effective += std::abs(eff);
-            sum_realized += real;      // Can be negative (market maker loses)
-            sum_impact += std::abs(impact);
+            // Sign convention: effective spread is non-negative by construction
+            // (buy-initiated trades print at/above the mid, sell-initiated at/below),
+            // so we accumulate it directly. Realized spread and price impact are
+            // kept SIGNED so the decomposition identity holds on the averages:
+            //     avg_effective = avg_realized + avg_impact
+            // Averaging |impact| separately (the previous behaviour) broke that
+            // identity and produced a spurious adverse-selection ratio.
+            sum_effective += eff;
+            sum_realized  += real;     // negative when price reverts (MM gains)
+            sum_impact    += impact;   // negative when flow is uninformed / mean-reverting
 
-            effective_spreads.push_back(std::abs(eff));
+            effective_spreads.push_back(eff);
 
             vw_effective += std::abs(eff) * t.volume;
             vw_realized += real * t.volume;

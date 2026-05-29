@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.2.0 (2026-05-30)
+
+### Fixes (analytics correctness)
+- **Stylized facts were sampled per-event on the integer-tick mid**, so the
+  return series was ~99% exact zeros — inflating excess kurtosis to a spurious
+  78 and crushing the autocorrelation of |returns| to ~0.02. Returns are now
+  sampled on fixed 1-second clock-time bars as log returns (Cont, 2001). With
+  the artifact removed, volatility clustering emerges from the Hawkes arrivals:
+  AC(|r|, lag 1) = 0.24 (empirical 0.15–0.40) and excess kurtosis = 1.16.
+- **Spread decomposition violated `effective = realized + impact`** because the
+  price-impact term was averaged in absolute value while realized was signed.
+  All three components are now consistently signed; the identity holds and the
+  adverse-selection ratio is meaningful (≈0 for uninformed ZI flow — as theory
+  predicts, and consistent with the near-zero Kyle's λ).
+
+### Docs
+- README sample results, visualization captions, validation table, and CLI
+  usage now match what the current code actually produces and supports.
+- `output/report.txt` regenerated from the current build.
+- `research/microstructure_paper.md` now reports the simulation's real numbers
+  and contrasts them honestly with empirical equity benchmarks; an informed-
+  trader agent population is identified as the principal extension.
+
+### Notes
+- Throughput/latency figures are hardware-dependent; the analytics are
+  deterministic and identical across machines and runs.
+
 ## v1.1.0 (2026-04-06)
 
 ### New features
