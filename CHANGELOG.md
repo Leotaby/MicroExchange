@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.3.0 (2026-05-30)
+
+### New features
+- **`ArrayOrderBook` — a tick-indexed array order book** as a drop-in
+  alternative to the `std::map`-based `OrderBook`. Levels live in one
+  contiguous array indexed by `price - min_price`; an **occupied-level bitmap**
+  with `__builtin_ctzll` / `__builtin_clzll` advances the best-bid/ask cursors
+  by word-skipping instead of a linear scan. Reuses the same `Order`,
+  `PriceLevel`, and `ArenaAllocator`, so it is a clean A/B against the tree.
+- **`bench_orderbook_compare`** — runs an identical order stream through both
+  books, asserts a **byte-identical trade stream**, then reports throughput and
+  latency. Registered as the CTest gate `orderbook_equivalence`.
+
+### Results (1M orders, ~9900–10100 band)
+- Trade streams identical (176,732 trades) — CI-gated.
+- Median per-order latency **84 ns (array) vs 125 ns (std::map)**, ~33% lower;
+  P99 334 vs 375 ns. Throughput ~6.0M orders/sec for both — the per-order cost
+  is dominated by the `OrderId→Order*` hash insert and the `now()` timestamp,
+  not the level container.
+- Characterised the band-width tradeoff: a *naive* linear best-bid/ask scan is
+  ~25× slower than `std::map` on a sparse 200k-level band; the bitmap index
+  removes that cliff and keeps the array ≥1.0× through realistic widths.
+
+### Known limitations / next
+- Extreme sparsity (≫50k active levels) still favours a two-level summary
+  bitmap; tracked as future work.
+- `ArrayOrderBook` covers Limit/Market/IOC/FOK + cancel; Stop/StopLimit/amend
+  remain in the full `OrderBook`.
+
 ## v1.2.0 (2026-05-30)
 
 ### Fixes (analytics correctness)

@@ -215,6 +215,41 @@ P99.9 latency:  1,033 ns
 ```
 *(Throughput/latency are hardware-dependent — numbers above are from the committed `output/benchmark_results.txt`. The analytics below are deterministic and identical on any machine.)*
 
+### Order book: `std::map` vs tick-indexed array
+
+The engine ships **two** order-book implementations behind identical matching
+semantics: the default `OrderBook` (two `std::map`s) and `ArrayOrderBook`, a
+contiguous tick-indexed array with a **bitmap occupied-index** (hardware
+`ctz`/`clz` bit-scan for the best-bid/ask cursors). `bench_orderbook_compare`
+runs the same order stream through both, asserts the trade streams are
+**byte-identical**, then compares performance (1M orders, ~9900–10100 band):
+
+```
+Correctness:  176,732 trades, identical stream  ✓  (CI-gated)
+
+Per-order latency      P50      P99
+  std::map             125 ns   375 ns
+  array (bitmap)        84 ns   334 ns     ← ~33% lower median latency
+
+Throughput            ~6.0M orders/sec for both (within noise)
+```
+
+Two takeaways that matter more than a single headline number:
+
+1. **Latency, not throughput, is where the array wins.** Median per-order
+   latency drops ~33% from the O(1) tick-indexed level ops; throughput is
+   ~equal because the per-order cost here is dominated by the `OrderId→Order*`
+   hash insert and the `now()` timestamp, *not* the level container — so the
+   container swap can't move it much. (Trimming `now()` from the hot path is
+   the next optimization.)
+2. **A flat array needs an index.** A naive linear best-bid/ask scan is ~25×
+   *slower* than `std::map` on a wide/sparse book because it walks empty levels;
+   the bitmap occupied-index fixes that and keeps the array ≥1.0× through
+   realistic band widths. Extreme sparsity (200k levels) still favours a
+   two-level summary bitmap — tracked as future work.
+
+Run it yourself: `./bin/bench_orderbook_compare`.
+
 ### Spread Decomposition (1 hr simulated AAPL — deterministic)
 ```
 590,168 orders → 209,905 trades
@@ -264,7 +299,7 @@ strong clustering, mild fat tails (deep tails would need informed/trending flow)
 - **Arena allocator for Order objects** — Pre-allocated slab; zero malloc on the hot path; deterministic deallocation
 - **SPSC lock-free ring buffer for MD feed** — Single-producer/single-consumer between matching thread and feed handler; no mutex contention
 - **Compile-time order type dispatch** — `if constexpr` eliminates branch misprediction for known order types
-- **Contiguous price level array** — Cache-friendly iteration for BBO updates and book snapshots
+- **Tick-indexed array book with a bitmap BBO index** (`ArrayOrderBook`) — an alternative to the `std::map` book: O(1) level lookup/insert/erase, contiguous cache-friendly levels, and `ctz`/`clz` hardware bit-scan to advance the best-bid/ask cursors. Benchmarked head-to-head with a CI-gated, byte-identical trade-stream cross-check (see Sample Results)
 - **Sequence numbers on every event** — Enables deterministic replay, gap detection, and recovery
 
 ---
@@ -294,7 +329,8 @@ MicroExchange/
 ├── core/                      # Matching engine
 │   ├── include/
 │   │   ├── Order.h            # Order types, side, TIF
-│   │   ├── OrderBook.h        # CLOB with price-time priority
+│   │   ├── OrderBook.h        # CLOB with price-time priority (std::map levels)
+│   │   ├── ArrayOrderBook.h   # CLOB with tick-indexed array + bitmap BBO index
 │   │   ├── MatchingEngine.h   # Multi-symbol engine facade
 │   │   ├── PriceLevel.h       # Intrusive linked-list level
 │   │   └── ArenaAllocator.h   # Slab allocator for orders
@@ -319,8 +355,9 @@ MicroExchange/
 ├── src/
 │   └── main.cpp               # CLI entry point
 ├── bench/
-│   ├── bench_throughput.cpp    # Single-thread matching throughput
-│   └── bench_latency.cpp       # Per-op latency histogram (p50/p90/p99/...)
+│   ├── bench_throughput.cpp        # Single-thread matching throughput
+│   ├── bench_latency.cpp           # Per-op latency histogram (p50/p90/p99/...)
+│   └── bench_orderbook_compare.cpp # std::map vs tick-indexed array (+ correctness)
 ├── .github/workflows/
 │   └── ci.yml                  # GitHub Actions: build + ctest on Linux/macOS
 ├── research/

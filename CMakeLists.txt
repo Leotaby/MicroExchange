@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(MicroExchange
-    VERSION 1.0.0
+    VERSION 1.3.0
     LANGUAGES CXX
     DESCRIPTION "Exchange-grade CLOB matching engine + microstructure analytics"
 )
@@ -35,6 +35,8 @@ add_executable(test_invariants core/tests/test_invariants.cpp)
 # benchmarks
 add_executable(bench_throughput bench/bench_throughput.cpp)
 add_executable(bench_latency    bench/bench_latency.cpp)
+# std::map OrderBook vs tick-indexed ArrayOrderBook (throughput, latency, correctness)
+add_executable(bench_orderbook_compare bench/bench_orderbook_compare.cpp)
 
 # CTest registration — `ctest` from the build dir runs the full suite.
 enable_testing()
@@ -52,6 +54,15 @@ add_test(
 )
 set_tests_properties(simulator_smoke PROPERTIES TIMEOUT 60)
 
-install(TARGETS micro_exchange test_invariants bench_throughput bench_latency
+# Equivalence gate: the tick-indexed ArrayOrderBook must emit a trade stream
+# byte-identical to the std::map OrderBook on the same input, or CI fails.
+add_test(NAME orderbook_equivalence COMMAND bench_orderbook_compare)
+set_tests_properties(orderbook_equivalence PROPERTIES
+    PASS_REGULAR_EXPRESSION "identical trade stream: YES"
+    TIMEOUT 120
+)
+
+install(TARGETS micro_exchange test_invariants
+        bench_throughput bench_latency bench_orderbook_compare
     RUNTIME DESTINATION bin
 )
