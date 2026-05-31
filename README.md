@@ -20,11 +20,11 @@ A complete market microstructure laboratory: from order entry to trade print, fr
 
 ![Price Impact Surface](docs/images/impact_surface_3d.png)
 
-**Spread Decomposition** - Effective spread split into realized spread (MM revenue) and price impact. *Real large-caps run ~50–70% adverse selection; this zero-intelligence sim produces ≈0 (uninformed flow → no permanent impact) — see [reproducible results](#sample-results).*
+**Spread Decomposition** - Effective spread split into realized spread (MM revenue) and price impact. *Real large-caps run ~50–70% adverse selection; this zero-intelligence sim produces ≈0 (uninformed flow → no permanent impact) - see [reproducible results](#sample-results).*
 
 ![Spread Decomposition](docs/images/spread_decomposition.png)
 
-**Stylized Facts** - Return distribution vs Gaussian and the autocorrelation of |returns|. *Reproduced on 1s bars: volatility clustering AC(\|r\|,1) ≈ 0.24; fat tails are mild (excess kurtosis ≈ 1.2) under zero-intelligence flow — see [reproducible results](#sample-results).*
+**Stylized Facts** - Return distribution vs Gaussian and the autocorrelation of |returns|. *Reproduced on 1s bars: volatility clustering AC(\|r\|,1) ≈ 0.24; fat tails are mild (excess kurtosis ≈ 1.2) under zero-intelligence flow - see [reproducible results](#sample-results).*
 
 ![Stylized Facts](docs/images/stylized_facts.png)
 
@@ -65,17 +65,17 @@ Bid side (blue) and ask side (red) form the characteristic valley around the mid
 ![Order Book 3D](docs/images/orderbook_3d.png)
 
 ### 3D Price Impact Surface — Kyle's λ Landscape
-Price impact as a function of trade volume and order flow imbalance. The concave shape demonstrates the square-root law of impact (Bouchaud et al., 2018) — larger trades have diminishing marginal impact, amplified by directional imbalance.
+Price impact as a function of trade volume and order flow imbalance. The concave shape demonstrates the square-root law of impact (Bouchaud et al., 2018) - larger trades have diminishing marginal impact, amplified by directional imbalance.
 
 ![Impact 3D](docs/images/impact_3d.png)
 
 ### Spread Decomposition — Huang-Stoll (1997)
-Effective spread decomposed into realized spread (market maker revenue) and price impact. In liquid equities adverse selection is ~50–70%; under zero-intelligence flow it collapses to ≈0 (no informed trading), consistent with Kyle's λ ≈ 0. Reproducing realistic adverse selection requires informed agents (see Known Issues / future work).
+Effective spread decomposed into realized spread (market maker revenue) and price impact. In liquid equities adverse selection is ~50-70%; under zero-intelligence flow it collapses to ≈0 (no informed trading), consistent with Kyle's λ ≈ 0. Reproducing realistic adverse selection requires informed agents (see Known Issues / future work).
 
 ![Spread Decomposition](docs/images/spread_decomposition.png)
 
 ### Stylized Facts: Fat Tails & Volatility Clustering
-Left: return distribution vs Gaussian — heavy tails from Hawkes-driven clustering. Right: autocorrelation of |returns| showing slow decay characteristic of ARCH effects.
+Left: return distribution vs Gaussian - heavy tails from Hawkes-driven clustering. Right: autocorrelation of |returns| showing slow decay characteristic of ARCH effects.
 
 ![Stylized Facts](docs/images/stylized_facts.png)
 
@@ -89,8 +89,8 @@ Left: return distribution vs Gaussian — heavy tails from Hawkes-driven cluster
 | **Market** | IOC | Crosses the book at any price; unfilled remainder cancelled. |
 | **IOC** | IOC | Limit semantics; remainder after the first match is cancelled. |
 | **FOK** | FOK | Pre-checked for full fill; if not, never enters the book. |
-| **Stop** | — | Parked until `last_trade_price` crosses `stop_price`, then released as Market. |
-| **StopLimit** | — | Parked until trigger; released as Limit at `price`. |
+| **Stop** | - | Parked until `last_trade_price` crosses `stop_price`, then released as Market. |
+| **StopLimit** | - | Parked until trigger; released as Limit at `price`. |
 
 Stops are stored in dedicated per-side multimaps keyed by trigger price.
 Every aggressive cycle that updates the last print runs a guarded
@@ -121,15 +121,15 @@ which can cascade into more triggers without recursing on the call stack.
 
 Most GitHub "matching engines" are toy implementations — a sorted map, a match loop, and a README. This project bridges **three disciplines**:
 
-1. **Systems engineering** — Lock-free queues, arena allocation, cache-aligned structures, deterministic replay, property-based invariant testing
-2. **Financial economics** — Spread decomposition, adverse selection models, information-based trading theory (Glosten-Milgrom, Kyle, Ho-Stoll)
-3. **Quantitative research** — Reproducible empirical analysis, stylized fact generation, microstructure model calibration
+1. **Systems engineering** - Lock-free queues, arena allocation, cache-aligned structures, deterministic replay, property-based invariant testing
+2. **Financial economics** - Spread decomposition, adverse selection models, information-based trading theory (Glosten-Milgrom, Kyle, Ho-Stoll)
+3. **Quantitative research** - Reproducible empirical analysis, stylized fact generation, microstructure model calibration
 
 ---
 
 ## Known Issues & Limitations
 
-- **No informed traders → adverse selection ≈ 0**: Agents are zero-intelligence, so order flow carries no private information. Both the Huang-Stoll decomposition (price impact ≈ 0) and Kyle's λ (R² ≈ 0.01) correctly report this. It is a *modeling* limitation, not a bug — reproducing realistic adverse selection (~50–70% of the spread) requires a Glosten-Milgrom-style informed-trader population. Tracked as future work.
+- **No informed traders → adverse selection ≈ 0**: Agents are zero-intelligence, so order flow carries no private information. Both the Huang-Stoll decomposition (price impact ≈ 0) and Kyle's λ (R² ≈ 0.01) correctly report this. It is a *modeling* limitation, not a bug - reproducing realistic adverse selection (~50–70% of the spread) requires a Glosten-Milgrom-style informed-trader population. Tracked as future work.
 
 - **Fat tails are mild**: on 1s bars the ZI midprice is contained (a ~15-tick range over the hour), so excess kurtosis is ~1.2 — present but below intraday equities. Deep tails need informed/trending flow or a fundamental-value process.
 
@@ -223,7 +223,7 @@ runs the same order stream through both, asserts the trade streams are
 ```
 Correctness:  identical trade stream on every run  ✓  (CI-gated equivalence test)
 
-Performance (1M orders; hardware-dependent — example below is Apple M-series)
+Performance (1M orders; hardware-dependent - example below is Apple M-series)
                     std::map       array (bitmap)
   Throughput        ~7.9 M/s        ~9.6 M/s        → ~1.2x
   Latency  P50      84 ns           83 ns
@@ -317,9 +317,9 @@ strong clustering, mild fat tails (deep tails would need informed/trending flow)
 ## Design Decisions
 
 - **Intrusive doubly-linked list for price levels** — O(1) insert/remove at known position; avoids `std::map` overhead and heap fragmentation
-- **Arena allocator for Order objects** — Pre-allocated slab; zero malloc on the hot path; deterministic deallocation
-- **SPSC lock-free ring buffer for MD feed** — Single-producer/single-consumer between matching thread and feed handler; no mutex contention
-- **Compile-time order type dispatch** — `if constexpr` eliminates branch misprediction for known order types
+- **Arena allocator for Order objects** - Pre-allocated slab; zero malloc on the hot path; deterministic deallocation
+- **SPSC lock-free ring buffer for MD feed** - Single-producer/single-consumer between matching thread and feed handler; no mutex contention
+- **Compile-time order type dispatch** - `if constexpr` eliminates branch misprediction for known order types
 - **Tick-indexed array book with a bitmap BBO index** (`ArrayOrderBook`) — an alternative to the `std::map` book: O(1) level lookup/insert/erase, contiguous cache-friendly levels, and `ctz`/`clz` hardware bit-scan to advance the best-bid/ask cursors. Benchmarked head-to-head with a CI-gated, byte-identical trade-stream cross-check (see Sample Results)
 - **Sequence numbers on every event** — Enables deterministic replay, gap detection, and recovery
 
