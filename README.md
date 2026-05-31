@@ -39,7 +39,7 @@ A complete market microstructure laboratory: from order entry to trade print, fr
   ┌──────────────┐
   │ TCP Gateway  │─┐   binary order-entry protocol over a socket (net/)
   └──────────────┘ │
-  ┌──────────────┐ │   ┌────────────────────────────┐    ┌──────────────────┐
+  ┌──────────────┐ │   ┌─────────────────────────-───┐    ┌──────────────────┐
   │ Simulation   │ ├──▶│      Matching Engine        │──▶ │ Market Data Feed │
   │ (Hawkes/ZI)  │ │   │ price-time priority (FIFO)  │    │ (ITCH-style:     │
   └──────────────┘ │   │ Limit/Market/IOC/FOK/Stop   │    │ incremental +    │
@@ -48,7 +48,7 @@ A complete market microstructure laboratory: from order entry to trade print, fr
   │ (historical) │     │  • OrderBook     (std::map) │    ┌──────────────────┐
   └──────────────┘     │  • ArrayOrderBook (array +  │──▶ │ Analytics        │
                        │     bitmap BBO index)       │    │ spread decomp,   │
-                       └────────────────────────────┘    │ Kyle's λ, OFI,   │
+                       └──────────────────────-──────┘    │ Kyle's λ, OFI,   │
                                                           │ stylized facts   │
                                                           └──────────────────┘
 ```
